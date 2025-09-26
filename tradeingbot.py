@@ -25,11 +25,12 @@ PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy&"
 
 # Basis-URLs DEMO
 BASE_REST   = "https://demo-api-capital.backend-capital.com"
-BASE_STREAM = "wss://demo-api-streaming-capital.backend-capital.com/connect"
-ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")  # "demo" oder "live"
+BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
+ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
-INSTRUMENTS = ["BTCUSD", "ETHUSD"]
+#INSTRUMENTS = ["BTCUSD", "ETHUSD"]
+INSTRUMENTS = ["BTCUSD"]
 
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
