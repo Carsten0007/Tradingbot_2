@@ -7,6 +7,7 @@ import asyncio
 import websockets
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from collections import deque
 
 # ==============================
 # SETTINGS (entspricht Zelle A)
@@ -37,6 +38,9 @@ LOCAL_TZ = ZoneInfo("Europe/Berlin")
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
+
+# Candle-Historie für EMA-Berechnung
+candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
 
 
 # ==============================
@@ -82,17 +86,48 @@ def on_candle_forming(epic, bar):
             f"(Ticks:{bar['ticks']}) → {signal}"
         )
 
+
 def on_candle_close(epic, bar):
-    if bar["close"] > bar["open"]:
-        signal = "BUY ✅"
-    elif bar["close"] < bar["open"]:
-        signal = "SELL ⛔"
-    else:
-        signal = "NEUTRAL ⚪"
+    # Candle in History speichern
+    candle_history[epic].append(bar["close"])
+
+    # Spread aus der Candle schätzen (high-low ist oft zu groß → besser mid von ask-bid)
+    spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
+
+    signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
 
     print(
-        f"📊 Signal [{epic}] — O:{bar['open']:.2f} C:{bar['close']:.2f} → {signal}"
+        f"📊 Trend-Signal [{epic}] — O:{bar['open']:.2f} C:{bar['close']:.2f} → {signal}"
     )
+
+
+def ema(values, period: int):
+    """Einfache EMA-Berechnung auf einer Liste von Werten."""
+    if len(values) < period:
+        return None
+    k = 2 / (period + 1)
+    ema_val = values[0]
+    for v in values[1:]:
+        ema_val = v * k + ema_val * (1 - k)
+    return ema_val
+
+def evaluate_trend_signal(epic, closes, spread):
+    """Ermittle BUY/SELL/HOLD basierend auf EMA fast/slow und Spread-Filter."""
+    ema_fast = ema(closes, 20)
+    ema_slow = ema(closes, 50)
+
+    if ema_fast is None or ema_slow is None:
+        return "HOLD (zu wenig Daten)"
+
+    last_close = closes[-1]
+    prev_close = closes[-2]
+
+    if ema_fast > ema_slow and (last_close - prev_close) > 2 * spread:
+        return "READY TO TRADE: BUY ✅"
+    elif ema_fast < ema_slow and (prev_close - last_close) > 2 * spread:
+        return "READY TO TRADE: SELL ⛔"
+    else:
+        return "DOUBTFUL ⚪"
 
 
 # ==============================
