@@ -36,6 +36,13 @@ INSTRUMENTS = ["BTCUSD"]
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
 
+# ==============================
+# STRATEGIE-EINSTELLUNGEN
+# ==============================
+
+EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
+
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
 
@@ -65,40 +72,118 @@ def capital_login():
     print("CST vorhanden?", bool(CST), "XSEC vorhanden?", bool(XSEC))
     return CST, XSEC
 
+# ==============================
+# POSITIONS-MANAGER
+# ==============================
+
+def get_positions(CST, XSEC):
+    """Alle offenen Positionen abfragen."""
+    url = f"{BASE_REST}/api/v1/positions"
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Accept": "application/json"
+    }
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        print("⚠️ Fehler beim Abrufen der Positionen:", r.status_code, r.text)
+        return []
+    data = r.json()
+    return data.get("positions", [])
+
+
+def place_order(CST, XSEC, epic, direction, size=1):
+    """Neue Position eröffnen (Market-Order)."""
+    url = f"{BASE_REST}/api/v1/positions"
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "epic": epic,
+        "direction": direction,   # "BUY" oder "SELL"
+        "size": size,
+        "orderType": "MARKET",
+        "guaranteedStop": False
+    }
+    r = requests.post(url, headers=headers, json=data)
+    print("📩 Order-Response:", r.status_code, r.text)
+
+
+def close_position(CST, XSEC, deal_id, size=1):
+    """Offene Position schließen – probiert verschiedene API-Methoden."""
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    # Variante 1: DELETE /positions/otc/{dealId}
+    url_delete = f"{BASE_REST}/api/v1/positions/otc/{deal_id}"
+    print(f"🔎 Versuche Close mit DELETE {url_delete} ...")
+    r = requests.delete(url_delete, headers=headers)
+    print("📩 Close-Response (DELETE):", r.status_code, r.text)
+
+    if r.status_code == 200:
+        return
+
+    # Variante 2: POST /positions/close
+    url_post = f"{BASE_REST}/api/v1/positions/close"
+    data = {
+        "dealId": deal_id,
+        "size": size,
+        "orderType": "MARKET"
+    }
+    print(f"🔎 Versuche Close mit POST {url_post} ...")
+    r = requests.post(url_post, headers=headers, json=data)
+    print("📩 Close-Response (POST /close):", r.status_code, r.text)
+
 
 # ==============================
 # SIGNAL-LOGIK (Zelle D)
 # ==============================
 
-def on_candle_forming(epic, bar):
+def on_candle_forming(epic, bar, ts_ms):
     """Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen)."""
-    if bar["ticks"] % 50 == 0:  # alle 50 Ticks ein Check
+    closes = list(candle_history[epic]) + [bar["close"]]
+    spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
+    trend = evaluate_trend_signal(epic, closes, spread)
+
+    # Zeit konvertieren
+    local_time = to_local_dt(ts_ms).strftime("%d.%m.%Y %H:%M:%S")
+
+    # Nur bei neuem Close ausgeben
+    if bar["ticks"] == 1 or bar["close"] != bar.get("last_printed", None):
+        bar["last_printed"] = bar["close"]
         if bar["close"] > bar["open"]:
-            signal = "BUY ✅"
+            instant = "BUY ✅"
         elif bar["close"] < bar["open"]:
-            signal = "SELL ⛔"
+            instant = "SELL ⛔"
         else:
-            signal = "NEUTRAL ⚪"
+            instant = "NEUTRAL ⚪"
 
         print(
-            f"🔄 Forming-Signal [{epic}] — "
+            f"🔄 Forming-Signal [{epic}] {local_time} — "
             f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
-            f"(Ticks:{bar['ticks']}) → {signal}"
+            f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
         )
 
-
 def on_candle_close(epic, bar):
-    # Candle in History speichern
     candle_history[epic].append(bar["close"])
-
-    # Spread aus der Candle schätzen (high-low ist oft zu groß → besser mid von ask-bid)
     spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
-
     signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
 
     print(
         f"📊 Trend-Signal [{epic}] — O:{bar['open']:.2f} C:{bar['close']:.2f} → {signal}"
     )
+
+    # Positions-Manager aufrufen
+    decide_and_trade(CST, XSEC, epic, signal)
 
 
 def ema(values, period: int):
@@ -113,11 +198,11 @@ def ema(values, period: int):
 
 def evaluate_trend_signal(epic, closes, spread):
     """Ermittle BUY/SELL/HOLD basierend auf EMA fast/slow und Spread-Filter."""
-    ema_fast = ema(closes, 20)
-    ema_slow = ema(closes, 50)
+    ema_fast = ema(closes, EMA_FAST)
+    ema_slow = ema(closes, EMA_SLOW)
 
     if ema_fast is None or ema_slow is None:
-        return "HOLD (zu wenig Daten)"
+        return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
 
     last_close = closes[-1]
     prev_close = closes[-2]
@@ -128,6 +213,58 @@ def evaluate_trend_signal(epic, closes, spread):
         return "READY TO TRADE: SELL ⛔"
     else:
         return "DOUBTFUL ⚪"
+
+# ==============================
+# DECISION-MANAGER
+# ==============================
+
+open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
+
+def decide_and_trade(CST, XSEC, epic, signal):
+    """Entscheidet basierend auf Signal + aktuelle Position."""
+    global open_positions
+
+    current = open_positions[epic]
+
+    def get_deal_id():
+        positions = get_positions(CST, XSEC)
+        for pos in positions:
+            if pos["position"]["epic"] == epic:
+                return pos["position"]["dealId"]
+        return None
+
+    if signal.startswith("READY TO TRADE: BUY"):
+        if current == "BUY":
+            print(f"⚖️ [{epic}] Bereits LONG, nichts tun.")
+        elif current == "SELL":
+            print(f"🔄 [{epic}] Short schließen & Long eröffnen")
+            deal_id = get_deal_id()
+            if deal_id:
+                close_position(CST, XSEC, deal_id)
+            place_order(CST, XSEC, epic, "BUY")
+            open_positions[epic] = "BUY"
+        else:
+            print(f"🚀 [{epic}] Long eröffnen")
+            place_order(CST, XSEC, epic, "BUY")
+            open_positions[epic] = "BUY"
+
+    elif signal.startswith("READY TO TRADE: SELL"):
+        if current == "SELL":
+            print(f"⚖️ [{epic}] Bereits SHORT, nichts tun.")
+        elif current == "BUY":
+            print(f"🔄 [{epic}] Long schließen & Short eröffnen")
+            deal_id = get_deal_id()
+            if deal_id:
+                close_position(CST, XSEC, deal_id)
+            place_order(CST, XSEC, epic, "SELL")
+            open_positions[epic] = "SELL"
+        else:
+            print(f"🚀 [{epic}] Short eröffnen")
+            place_order(CST, XSEC, epic, "SELL")
+            open_positions[epic] = "SELL"
+
+    else:
+        print(f"🤔 [{epic}] Signal = {signal} → keine Aktion")
 
 
 # ==============================
@@ -201,7 +338,8 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                     b["close"] = px
                     b["ticks"] += 1
 
-                on_candle_forming(epic, st["bar"])
+                on_candle_forming(epic, st["bar"], ts_ms)
+
 
 
 # ==============================
