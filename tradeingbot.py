@@ -33,7 +33,7 @@ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
 #INSTRUMENTS = ["BTCUSD", "ETHUSD"]
-INSTRUMENTS = ["BTCUSD"]
+INSTRUMENTS = ["ETHUSD"]
 
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
@@ -330,8 +330,8 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                 last_msg = time.time()
 
                 while True:
-                    # --- Ping alle 30s ---
-                    if time.time() - last_msg > 30:
+                    # --- Ping alle 300s ---
+                    if time.time() - last_msg > 300:
                         await ws.ping()
                         print("📡 Ping gesendet")
                         last_msg = time.time()
