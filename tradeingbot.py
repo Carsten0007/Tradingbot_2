@@ -267,6 +267,8 @@ def decide_and_trade(CST, XSEC, epic, signal):
         print(f"🤔 [{epic}] Signal = {signal} → keine Aktion")
 
 
+import time
+
 # ==============================
 # CANDLE-AGGREGATOR (Zelle C)
 # ==============================
@@ -286,6 +288,7 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
     }
 
     states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
+    last_ping = time.time()
 
     print("Verbinde:", ws_url)
     async with websockets.connect(ws_url) as ws:
@@ -293,12 +296,19 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
         print("Subscribed:", INSTRUMENTS)
 
         while True:
+            # --- alle 5 Minuten einen JSON-Ping senden ---
+            if time.time() - last_ping > 300:
+                await ws.send(json.dumps({"destination": "ping"}))
+                print("📡 Ping gesendet")
+                last_ping = time.time()
+
             raw = await ws.recv()
-            print("RAW:", raw[:200])  # ersten 200 Zeichen loggen
             try:
                 msg = json.loads(raw)
             except Exception:
                 continue
+
+            # nur Quotes weiterverarbeiten
             if msg.get("destination") != "quote":
                 continue
 
@@ -340,7 +350,6 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                     b["ticks"] += 1
 
                 on_candle_forming(epic, st["bar"], ts_ms)
-
 
 
 # ==============================
