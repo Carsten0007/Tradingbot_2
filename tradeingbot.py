@@ -8,6 +8,8 @@ import websockets
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
+from colorama import Fore, Style, init
+init(autoreset=True)
 
 # ==============================
 # SETTINGS (entspricht Zelle A)
@@ -40,8 +42,8 @@ LOCAL_TZ = ZoneInfo("Europe/Berlin")
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -215,56 +217,85 @@ def evaluate_trend_signal(epic, closes, spread):
         return "DOUBTFUL ⚪"
 
 # ==============================
-# DECISION-MANAGER
+# DECISION-MANAGER (mit Schutz + Farben)
 # ==============================
+
+# Farben (ANSI-Codes)
+RESET  = "\033[0m"
+GREEN  = "\033[92m"
+RED    = "\033[91m"
+YELLOW = "\033[93m"
 
 open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
 
 def decide_and_trade(CST, XSEC, epic, signal):
-    """Entscheidet basierend auf Signal + aktuelle Position."""
+    """Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben."""
     global open_positions
 
     current = open_positions[epic]
 
-    def get_deal_id():
+    def get_deal_info():
         positions = get_positions(CST, XSEC)
         for pos in positions:
             if pos["position"]["epic"] == epic:
-                return pos["position"]["dealId"]
+                return pos["position"]
         return None
 
     if signal.startswith("READY TO TRADE: BUY"):
         if current == "BUY":
-            print(f"⚖️ [{epic}] Bereits LONG, nichts tun.")
+            print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
         elif current == "SELL":
-            print(f"🔄 [{epic}] Short schließen & Long eröffnen")
-            deal_id = get_deal_id()
-            if deal_id:
-                close_position(CST, XSEC, deal_id)
-            place_order(CST, XSEC, epic, "BUY")
-            open_positions[epic] = "BUY"
+            deal = get_deal_info()
+            if deal:
+                profit = float(deal.get("profitLoss", 0))
+                print(Fore.YELLOW + f"📊 [{epic}] Offener SHORT mit PnL={profit:.2f}")
+                if profit >= 0:
+                    print(Fore.GREEN + f"🔄 [{epic}] Short im Gewinn → schließen & Long eröffnen")
+                    close_position(CST, XSEC, deal["dealId"])
+                    place_order(CST, XSEC, epic, "BUY")
+                    open_positions[epic] = "BUY"
+                else:
+                    print(Fore.RED + f"⏸️ [{epic}] Short im Verlust → halte Position (kein Blind-Drehen)")
+            else:
+                print(f"{YELLOW}🚀 [{epic}] Long eröffnen (keine offene Position gefunden){RESET}")
+                place_order(CST, XSEC, epic, "BUY")
+                open_positions[epic] = "BUY"
         else:
-            print(f"🚀 [{epic}] Long eröffnen")
+            print(f"{YELLOW}🚀 [{epic}] Long eröffnen{RESET}")
             place_order(CST, XSEC, epic, "BUY")
             open_positions[epic] = "BUY"
 
     elif signal.startswith("READY TO TRADE: SELL"):
         if current == "SELL":
-            print(f"⚖️ [{epic}] Bereits SHORT, nichts tun.")
+            print(f"{RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{RESET}")
         elif current == "BUY":
-            print(f"🔄 [{epic}] Long schließen & Short eröffnen")
-            deal_id = get_deal_id()
-            if deal_id:
-                close_position(CST, XSEC, deal_id)
-            place_order(CST, XSEC, epic, "SELL")
-            open_positions[epic] = "SELL"
+            deal = get_deal_info()
+            if deal:
+                profit = float(deal.get("profitLoss", 0))
+                print(f"{GREEN}📊 [{epic}] Offener LONG mit PnL={profit:.2f}{RESET}")
+                if profit >= 0:
+                    print(f"{YELLOW}🔄 [{epic}] Long im Gewinn → schließen & Short eröffnen{RESET}")
+                    close_position(CST, XSEC, deal["dealId"])
+                    place_order(CST, XSEC, epic, "SELL")
+                    open_positions[epic] = "SELL"
+                else:
+                    print(f"{GREEN}⏸️ [{epic}] Long im Verlust → halte Position (kein Blind-Drehen){RESET}")
+            else:
+                print(f"{YELLOW}🚀 [{epic}] Short eröffnen (keine offene Position gefunden){RESET}")
+                place_order(CST, XSEC, epic, "SELL")
+                open_positions[epic] = "SELL"
         else:
-            print(f"🚀 [{epic}] Short eröffnen")
+            print(f"{YELLOW}🚀 [{epic}] Short eröffnen{RESET}")
             place_order(CST, XSEC, epic, "SELL")
             open_positions[epic] = "SELL"
 
     else:
-        print(f"🤔 [{epic}] Signal = {signal} → keine Aktion")
+        if current == "BUY":
+            print(f"{GREEN}🤔 [{epic}] LONG offen → Signal = {signal}{RESET}")
+        elif current == "SELL":
+            print(f"{RED}🤔 [{epic}] SHORT offen → Signal = {signal}{RESET}")
+        else:
+            print(f"{YELLOW}🤔 [{epic}] Kein Trade offen → Signal = {signal}{RESET}")
 
 
 import time
@@ -288,69 +319,82 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
     }
 
     states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
-    last_ping = time.time()
 
-    print("Verbinde:", ws_url)
-    async with websockets.connect(ws_url) as ws:
-        await ws.send(json.dumps(subscribe))
-        print("Subscribed:", INSTRUMENTS)
+    while True:  # Reconnect-Loop
+        print("🔌 Verbinde:", ws_url)
+        try:
+            async with websockets.connect(ws_url, ping_interval=None) as ws:
+                await ws.send(json.dumps(subscribe))
+                print("✅ Subscribed:", INSTRUMENTS)
 
-        while True:
-            # --- alle 5 Minuten einen JSON-Ping senden ---
-            if time.time() - last_ping > 300:
-                await ws.send(json.dumps({"destination": "ping"}))
-                print("📡 Ping gesendet")
-                last_ping = time.time()
+                last_msg = time.time()
 
-            raw = await ws.recv()
-            try:
-                msg = json.loads(raw)
-            except Exception:
-                continue
+                while True:
+                    # --- Ping alle 30s ---
+                    if time.time() - last_msg > 30:
+                        await ws.ping()
+                        print("📡 Ping gesendet")
+                        last_msg = time.time()
 
-            # nur Quotes weiterverarbeiten
-            if msg.get("destination") != "quote":
-                continue
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=60)
+                        msg = json.loads(raw)
+                        last_msg = time.time()
+                    except asyncio.TimeoutError:
+                        print("⚠️ Timeout → reconnect ...")
+                        break  # raus aus innerer Schleife → reconnect
+                    except Exception as e:
+                        print("⚠️ Fehler beim Empfangen:", e)
+                        break
 
-            p = msg["payload"]
-            epic = p.get("epic")
-            if epic not in states:
-                continue
+                    # nur Quotes weiterverarbeiten
+                    if msg.get("destination") != "quote":
+                        continue
 
-            try:
-                bid = float(p["bid"])
-                ask = float(p["ofr"])
-                ts_ms = int(p["timestamp"])
-            except Exception:
-                continue
+                    p = msg["payload"]
+                    epic = p.get("epic")
+                    if epic not in states:
+                        continue
 
-            px = (bid + ask) / 2.0
-            minute_key = local_minute_floor(ts_ms)
-            st = states[epic]
+                    try:
+                        bid = float(p["bid"])
+                        ask = float(p["ofr"])
+                        ts_ms = int(p["timestamp"])
+                    except Exception:
+                        continue
 
-            if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
-                bar = st["bar"]
-                print(
-                    f"\n✅ [{epic}] Closed 1m  {st['minute'].strftime('%d.%m.%Y %H:%M:%S %Z')}  "
-                    f"O:{bar['open']:.2f} H:{bar['high']:.2f} L:{bar['low']:.2f} C:{bar['close']:.2f}  "
-                    f"Ticks:{bar['ticks']}"
-                )
-                on_candle_close(epic, bar)
-                st["minute"] = minute_key
-                st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
-            else:
-                if st["minute"] is None:
-                    st["minute"] = minute_key
-                    st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
-                else:
-                    b = st["bar"]
-                    b["high"]  = max(b["high"], px)
-                    b["low"]   = min(b["low"],  px)
-                    b["close"] = px
-                    b["ticks"] += 1
+                    px = (bid + ask) / 2.0
+                    minute_key = local_minute_floor(ts_ms)
+                    st = states[epic]
 
-                on_candle_forming(epic, st["bar"], ts_ms)
+                    if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
+                        bar = st["bar"]
+                        print(
+                            f"\n✅ [{epic}] Closed 1m  {st['minute'].strftime('%d.%m.%Y %H:%M:%S %Z')}  "
+                            f"O:{bar['open']:.2f} H:{bar['high']:.2f} L:{bar['low']:.2f} C:{bar['close']:.2f}  "
+                            f"Ticks:{bar['ticks']}"
+                        )
+                        on_candle_close(epic, bar)
+                        st["minute"] = minute_key
+                        st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
+                    else:
+                        if st["minute"] is None:
+                            st["minute"] = minute_key
+                            st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
+                        else:
+                            b = st["bar"]
+                            b["high"]  = max(b["high"], px)
+                            b["low"]   = min(b["low"],  px)
+                            b["close"] = px
+                            b["ticks"] += 1
 
+                        on_candle_forming(epic, st["bar"], ts_ms)
+
+        except Exception as e:
+            print("❌ Verbindungsfehler, versuche Reconnect:", e)
+
+        print("⏳ 5s warten, dann neuer Verbindungsversuch ...")
+        await asyncio.sleep(5)
 
 # ==============================
 # MAIN
