@@ -294,6 +294,7 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
 
         while True:
             raw = await ws.recv()
+            print("RAW:", raw[:200])  # ersten 200 Zeichen loggen
             try:
                 msg = json.loads(raw)
             except Exception:
