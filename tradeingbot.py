@@ -46,8 +46,8 @@ CST, XSEC = None, None
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -253,7 +253,7 @@ def evaluate_trend_signal(epic, closes, spread):
     elif ema_fast < ema_slow and (prev_close - last_close) > 2 * spread:
         return "READY TO TRADE: SELL ⛔"
     else:
-        return "DOUBTFUL ⚪"
+        return "UNSAFE ⚪"
 
 
 # ==============================
@@ -289,11 +289,24 @@ def decide_and_trade(CST, XSEC, epic, signal):
 
     current = open_positions[epic]
 
-    def get_deal_info():
+    def get_deal_info(epic):
+        #Hole Details zur offenen Position für ein Epic.
         positions = get_positions(CST, XSEC)
+        if not positions:
+            print("⚠️ get_positions() lieferte keine offenen Positionen")
+            return None
+
         for pos in positions:
-            if pos["position"]["epic"] == epic:
-                return pos["position"]
+            position = pos.get("position")
+            if not position:
+                print(f"⚠️ Unerwarteter Eintrag ohne 'position': {pos}")
+                continue
+
+            pos_epic = position.get("epic")
+            if pos_epic == epic:
+                return position
+
+        print(f"ℹ️ Keine Position für {epic} gefunden.")
         return None
 
     if signal.startswith("READY TO TRADE: BUY"):
@@ -301,11 +314,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
         elif current == "SELL":
             deal = get_deal_info()
+            print(f"🔎 get_deal_info() → {deal}")
             if deal:
                 profit = float(deal.get("profitLoss", 0))
+                deal_id = deal.get("dealId")  # 👀
                 print(Fore.YELLOW + f"📊 [{epic}] Offener SHORT mit PnL={profit:.2f}")
                 if profit >= 0:
                     print(Fore.GREEN + f"🔄 [{epic}] Short im Gewinn → schließen & Long eröffnen")
+                    print(Fore.CYAN + f"🆔 Close-Versuch für Deal {deal_id}")  # 👀
                     if safe_close(CST, XSEC, deal["dealId"]):
                         if safe_open(CST, XSEC, epic, "BUY"):
                             open_positions[epic] = "BUY"
@@ -327,11 +343,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
         elif current == "BUY":
             deal = get_deal_info()
+            print(f"🔎 get_deal_info() → {deal}")
             if deal:
                 profit = float(deal.get("profitLoss", 0))
+                deal_id = deal.get("dealId")  # 👀
                 print(f"{Fore.GREEN}📊 [{epic}] Offener LONG mit PnL={profit:.2f}{Style.RESET_ALL}")
                 if profit >= 0:
                     print(f"{Fore.YELLOW}🔄 [{epic}] Long im Gewinn → schließen & Short eröffnen{Style.RESET_ALL}")
+                    print(Fore.CYAN + f"🆔 Close-Versuch für Deal {deal_id}")  # 👀
                     if safe_close(CST, XSEC, deal["dealId"]):
                         if safe_open(CST, XSEC, epic, "SELL"):
                             open_positions[epic] = "SELL"
@@ -356,8 +375,6 @@ def decide_and_trade(CST, XSEC, epic, signal):
         else:
             print(f"{Fore.YELLOW}🤔 [{epic}] Kein Trade offen → Signal = {signal}{Style.RESET_ALL}")
 
-
-import time
 
 # ==============================
 # CANDLE-AGGREGATOR (Zelle C)
