@@ -5,6 +5,7 @@ import json
 import requests
 import asyncio
 import websockets
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
@@ -38,12 +39,15 @@ INSTRUMENTS = ["ETHUSD"]
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
 
+CST, XSEC = None, None
+
+
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -75,10 +79,10 @@ def capital_login():
     return CST, XSEC
 
 # ==============================
-# POSITIONS-MANAGER
+# POSITIONS-MANAGER mit Auto-ReLogin + Robustheit
 # ==============================
 
-def get_positions(CST, XSEC):
+def get_positions(CST, XSEC, retry=True):
     """Alle offenen Positionen abfragen."""
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
@@ -88,14 +92,29 @@ def get_positions(CST, XSEC):
         "Accept": "application/json"
     }
     r = requests.get(url, headers=headers)
+
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (get_positions) ...")
+        new_CST, new_XSEC = capital_login()
+        return get_positions(new_CST, new_XSEC, retry=False)
+
     if r.status_code != 200:
         print("⚠️ Fehler beim Abrufen der Positionen:", r.status_code, r.text)
         return []
-    data = r.json()
-    return data.get("positions", [])
+
+    try:
+        data = r.json()
+    except Exception:
+        return []
+
+    positions = data.get("positions", [])
+    if not isinstance(positions, list):
+        return []
+
+    return positions
 
 
-def place_order(CST, XSEC, epic, direction, size=1):
+def open_position(CST, XSEC, epic, direction, size=1, retry=True):
     """Neue Position eröffnen (Market-Order)."""
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
@@ -112,10 +131,17 @@ def place_order(CST, XSEC, epic, direction, size=1):
         "guaranteedStop": False
     }
     r = requests.post(url, headers=headers, json=data)
+
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (open_position) ...")
+        new_CST, new_XSEC = capital_login()
+        return open_position(new_CST, new_XSEC, epic, direction, size, retry=False)
+
     print("📩 Order-Response:", r.status_code, r.text)
+    return r
 
 
-def close_position(CST, XSEC, deal_id, size=1):
+def close_position(CST, XSEC, deal_id, size=1, retry=True):
     """Offene Position schließen – probiert verschiedene API-Methoden."""
     headers = {
         "X-CAP-API-KEY": API_KEY,
@@ -129,10 +155,15 @@ def close_position(CST, XSEC, deal_id, size=1):
     url_delete = f"{BASE_REST}/api/v1/positions/otc/{deal_id}"
     print(f"🔎 Versuche Close mit DELETE {url_delete} ...")
     r = requests.delete(url_delete, headers=headers)
-    print("📩 Close-Response (DELETE):", r.status_code, r.text)
+
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (close_position/DELETE) ...")
+        new_CST, new_XSEC = capital_login()
+        return close_position(new_CST, new_XSEC, deal_id, size, retry=False)
 
     if r.status_code == 200:
-        return
+        print("📩 Close-Response (DELETE):", r.status_code, r.text)
+        return r
 
     # Variante 2: POST /positions/close
     url_post = f"{BASE_REST}/api/v1/positions/close"
@@ -143,7 +174,15 @@ def close_position(CST, XSEC, deal_id, size=1):
     }
     print(f"🔎 Versuche Close mit POST {url_post} ...")
     r = requests.post(url_post, headers=headers, json=data)
+
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (close_position/POST) ...")
+        new_CST, new_XSEC = capital_login()
+        return close_position(new_CST, new_XSEC, deal_id, size, retry=False)
+
     print("📩 Close-Response (POST /close):", r.status_code, r.text)
+    return r
+
 
 
 # ==============================
@@ -216,6 +255,22 @@ def evaluate_trend_signal(epic, closes, spread):
     else:
         return "DOUBTFUL ⚪"
 
+
+# ==============================
+# Hilfsfunktionen für robustes Open/Close
+# ==============================
+
+def safe_close(CST, XSEC, deal_id, size=1):
+    """Wrapper: Close-Order robust mit Retry."""
+    r = close_position(CST, XSEC, deal_id, size)
+    return (r is not None and r.status_code == 200)
+
+def safe_open(CST, XSEC, epic, direction, size=1):
+    """Wrapper: Open-Order robust mit Retry."""
+    r = open_position(CST, XSEC, epic, direction, size)
+    return (r is not None and r.status_code == 200)
+
+
 # ==============================
 # DECISION-MANAGER (mit Schutz + Farben)
 # ==============================
@@ -251,51 +306,55 @@ def decide_and_trade(CST, XSEC, epic, signal):
                 print(Fore.YELLOW + f"📊 [{epic}] Offener SHORT mit PnL={profit:.2f}")
                 if profit >= 0:
                     print(Fore.GREEN + f"🔄 [{epic}] Short im Gewinn → schließen & Long eröffnen")
-                    close_position(CST, XSEC, deal["dealId"])
-                    place_order(CST, XSEC, epic, "BUY")
-                    open_positions[epic] = "BUY"
+                    if safe_close(CST, XSEC, deal["dealId"]):
+                        if safe_open(CST, XSEC, epic, "BUY"):
+                            open_positions[epic] = "BUY"
+                    else:
+                        print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
                 else:
                     print(Fore.RED + f"⏸️ [{epic}] Short im Verlust → halte Position (kein Blind-Drehen)")
             else:
-                print(f"{YELLOW}🚀 [{epic}] Long eröffnen (keine offene Position gefunden){RESET}")
-                place_order(CST, XSEC, epic, "BUY")
-                open_positions[epic] = "BUY"
+                print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen (keine offene Position gefunden){Style.RESET_ALL}")
+                if safe_open(CST, XSEC, epic, "BUY"):
+                    open_positions[epic] = "BUY"
         else:
-            print(f"{YELLOW}🚀 [{epic}] Long eröffnen{RESET}")
-            place_order(CST, XSEC, epic, "BUY")
-            open_positions[epic] = "BUY"
+            print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
+            if safe_open(CST, XSEC, epic, "BUY"):
+                open_positions[epic] = "BUY"
 
     elif signal.startswith("READY TO TRADE: SELL"):
         if current == "SELL":
-            print(f"{RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{RESET}")
+            print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
         elif current == "BUY":
             deal = get_deal_info()
             if deal:
                 profit = float(deal.get("profitLoss", 0))
-                print(f"{GREEN}📊 [{epic}] Offener LONG mit PnL={profit:.2f}{RESET}")
+                print(f"{Fore.GREEN}📊 [{epic}] Offener LONG mit PnL={profit:.2f}{Style.RESET_ALL}")
                 if profit >= 0:
-                    print(f"{YELLOW}🔄 [{epic}] Long im Gewinn → schließen & Short eröffnen{RESET}")
-                    close_position(CST, XSEC, deal["dealId"])
-                    place_order(CST, XSEC, epic, "SELL")
-                    open_positions[epic] = "SELL"
+                    print(f"{Fore.YELLOW}🔄 [{epic}] Long im Gewinn → schließen & Short eröffnen{Style.RESET_ALL}")
+                    if safe_close(CST, XSEC, deal["dealId"]):
+                        if safe_open(CST, XSEC, epic, "SELL"):
+                            open_positions[epic] = "SELL"
+                    else:
+                        print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
                 else:
-                    print(f"{GREEN}⏸️ [{epic}] Long im Verlust → halte Position (kein Blind-Drehen){RESET}")
+                    print(f"{Fore.GREEN}⏸️ [{epic}] Long im Verlust → halte Position (kein Blind-Drehen){Style.RESET_ALL}")
             else:
-                print(f"{YELLOW}🚀 [{epic}] Short eröffnen (keine offene Position gefunden){RESET}")
-                place_order(CST, XSEC, epic, "SELL")
-                open_positions[epic] = "SELL"
+                print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen (keine offene Position gefunden){Style.RESET_ALL}")
+                if safe_open(CST, XSEC, epic, "SELL"):
+                    open_positions[epic] = "SELL"
         else:
-            print(f"{YELLOW}🚀 [{epic}] Short eröffnen{RESET}")
-            place_order(CST, XSEC, epic, "SELL")
-            open_positions[epic] = "SELL"
+            print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
+            if safe_open(CST, XSEC, epic, "SELL"):
+                open_positions[epic] = "SELL"
 
     else:
         if current == "BUY":
-            print(f"{GREEN}🤔 [{epic}] LONG offen → Signal = {signal}{RESET}")
+            print(f"{Fore.GREEN}🤔 [{epic}] LONG offen → Signal = {signal}{Style.RESET_ALL}")
         elif current == "SELL":
-            print(f"{RED}🤔 [{epic}] SHORT offen → Signal = {signal}{RESET}")
+            print(f"{Fore.RED}🤔 [{epic}] SHORT offen → Signal = {signal}{Style.RESET_ALL}")
         else:
-            print(f"{YELLOW}🤔 [{epic}] Kein Trade offen → Signal = {signal}{RESET}")
+            print(f"{Fore.YELLOW}🤔 [{epic}] Kein Trade offen → Signal = {signal}{Style.RESET_ALL}")
 
 
 import time
@@ -308,19 +367,25 @@ def local_minute_floor(ts_ms: int) -> datetime:
     dt_local = to_local_dt(ts_ms)
     return dt_local.replace(second=0, microsecond=0)
 
-async def run_candle_aggregator_per_instrument(CST, XSEC):
-    ws_url = f"{BASE_STREAM}?CST={CST}&X-SECURITY-TOKEN={XSEC}"
-    subscribe = {
-        "destination": "marketData.subscribe",
-        "correlationId": "candles",
-        "cst": CST,
-        "securityToken": XSEC,
-        "payload": {"epics": INSTRUMENTS},
-    }
+async def run_candle_aggregator_per_instrument():
+    global CST, XSEC
 
-    states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
+    while True:  # Endlosschleife mit Reconnect & Token-Refresh
+        # Falls Tokens fehlen oder abgelaufen sind → neu einloggen
+        if not CST or not XSEC:
+            CST, XSEC = capital_login()
 
-    while True:  # Reconnect-Loop
+        ws_url = f"{BASE_STREAM}?CST={CST}&X-SECURITY-TOKEN={XSEC}"
+        subscribe = {
+            "destination": "marketData.subscribe",
+            "correlationId": "candles",
+            "cst": CST,
+            "securityToken": XSEC,
+            "payload": {"epics": INSTRUMENTS},
+        }
+
+        states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
+
         print("🔌 Verbinde:", ws_url)
         try:
             async with websockets.connect(ws_url, ping_interval=None) as ws:
@@ -330,7 +395,7 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                 last_msg = time.time()
 
                 while True:
-                    # --- Ping alle 300s ---
+                    # --- alle 5 Minuten ein Ping ---
                     if time.time() - last_msg > 300:
                         await ws.ping()
                         print("📡 Ping gesendet")
@@ -342,18 +407,22 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                         last_msg = time.time()
                     except asyncio.TimeoutError:
                         print("⚠️ Timeout → reconnect ...")
-                        break  # raus aus innerer Schleife → reconnect
+                        break
                     except Exception as e:
                         print("⚠️ Fehler beim Empfangen:", e)
+                        # Session ungültig? → Tokens löschen → nächster Loop macht Login neu
+                        if "invalid.session.token" in str(e).lower():
+                            CST, XSEC = None, None
                         break
 
                     # nur Quotes weiterverarbeiten
                     if msg.get("destination") != "quote":
                         continue
 
-                    p = msg["payload"]
+                    # Payload robust auslesen
+                    p = msg.get("payload", {})
                     epic = p.get("epic")
-                    if epic not in states:
+                    if not epic or epic not in states:
                         continue
 
                     try:
@@ -391,9 +460,11 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
                         on_candle_forming(epic, st["bar"], ts_ms)
 
         except Exception as e:
-            print("❌ Verbindungsfehler, versuche Reconnect:", e)
+            print("❌ Verbindungsfehler:", e)
+            if "invalid.session.token" in str(e).lower():
+                CST, XSEC = None, None
 
-        print("⏳ 5s warten, dann neuer Verbindungsversuch ...")
+        print("⏳ 5s warten, dann neuer Versuch ...")
         await asyncio.sleep(5)
 
 # ==============================
@@ -401,6 +472,5 @@ async def run_candle_aggregator_per_instrument(CST, XSEC):
 # ==============================
 
 if __name__ == "__main__":
-    CST, XSEC = capital_login()
-    asyncio.run(run_candle_aggregator_per_instrument(CST, XSEC))
+    asyncio.run(run_candle_aggregator_per_instrument())
 
