@@ -46,8 +46,8 @@ CST, XSEC = None, None
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -117,9 +117,7 @@ def get_positions(CST, XSEC, retry=True):
 
 
 def open_position(CST, XSEC, epic, direction, size=1, retry=True):
-    # Neue Position eröffnen (Market-Order) und echte Positions-dealId in open_positions merken.
-    global open_positions
-
+    # Neue Position eröffnen (Market-Order), liefert Response-Objekt zurück.
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
         "X-CAP-API-KEY": API_KEY,
@@ -129,11 +127,12 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
     }
     data = {
         "epic": epic,
-        "direction": direction,   # "BUY" oder "SELL"
+        "direction": direction,
         "size": size,
         "orderType": "MARKET",
         "guaranteedStop": False
     }
+
     r = requests.post(url, headers=headers, json=data)
 
     if r.status_code == 401 and retry:
@@ -143,40 +142,19 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
 
     print("📩 Order-Response:", r.status_code, r.text)
 
-    if r.status_code == 200:
-        try:
-            ref = r.json().get("dealReference")
-            if ref:
-                conf_url = f"{BASE_REST}/api/v1/confirms/{ref}"
-                conf = requests.get(conf_url, headers=headers)
-                print("📩 Confirm:", conf.status_code, conf.text)
-                if conf.status_code == 200:
-                    conf_data = conf.json()
-                    deal_id = None
-
-                    # echte Positions-ID aus affectedDeals
-                    affected = conf_data.get("affectedDeals")
-                    if affected and isinstance(affected, list) and affected:
-                        deal_id = affected[0].get("dealId")
-
-                    # fallback: dealId aus Confirm selbst (z. B. bei sofortiger Ablehnung)
-                    if not deal_id and conf_data.get("dealId"):
-                        deal_id = conf_data.get("dealId")
-
-                    if deal_id:
-                        open_positions[epic] = {"direction": direction, "dealId": deal_id}
-                        print(f"🆔 Position gemerkt: {epic} → {direction} → {deal_id}")
-                    else:
-                        print(f"⚠️ Konnte keine dealId aus Confirm extrahieren für {epic} → {direction}")
-        except Exception as e:
-            print("⚠️ Confirm-Check fehlgeschlagen:", e)
-
     return r
 
 
-def close_position(CST, XSEC, deal_id, size=1, retry=True):
-    #Offene Position schließen über DELETE /positions/otc/{dealId} mit Abgleich via get_positions.
-    url = f"{BASE_REST}/api/v1/positions/otc/{deal_id}"
+def close_position(CST, XSEC, epic, deal_id=None, size=1, direction="SELL", retry=True):
+    # Offene Position schließen – probiere DELETE, POST (/close), PUT und POST (/otc mit _method=DELETE)
+
+    deal_id_str = str(deal_id) if deal_id is not None else None
+
+    url_delete = f"{BASE_REST}/api/v1/positions/otc/{deal_id_str}" if deal_id_str else None
+    url_post   = f"{BASE_REST}/api/v1/positions/close"
+    url_put    = f"{BASE_REST}/api/v1/positions/otc/{deal_id_str}" if deal_id_str else None
+    url_otc    = f"{BASE_REST}/api/v1/positions/otc"
+
     headers = {
         "X-CAP-API-KEY": API_KEY,
         "CST": CST,
@@ -185,36 +163,75 @@ def close_position(CST, XSEC, deal_id, size=1, retry=True):
         "Accept": "application/json"
     }
 
-    print(f"🔎 Versuche Close mit DELETE {url} ...")
-    r = requests.delete(url, headers=headers)
+    # Payload-Varianten
+    data_deal = {
+        "dealId": deal_id_str,
+        "size": size,
+        "orderType": "MARKET",
+        "direction": direction
+    }
+    data_epic = {
+        "epic": epic,
+        "direction": direction,
+        "size": size,
+        "orderType": "MARKET",
+        "timeInForce": "FILL_OR_KILL"
+    }
 
-    if r is None:
-        print("⚠️ Close-Request hat keine Antwort geliefert!")
-        return None
-
-    # Session abgelaufen → Retry mit neuem Login
-    if r.status_code == 401 and retry:
-        print("🔑 Session abgelaufen → erneuter Login (close_position) ...")
-        new_CST, new_XSEC = capital_login()
-        return close_position(new_CST, new_XSEC, deal_id, size, retry=False)
-
-    # Immer Rohdaten loggen
-    print(f"📩 Close-Response: {r.status_code} {r.text}")
-
-    # Zusatz: nachsehen, ob Position noch existiert
+    # Debug: aktuelle offene Positionen checken
     try:
         positions = get_positions(CST, XSEC)
         ids = [p["position"]["dealId"] for p in positions if "position" in p]
-        if deal_id in ids:
-            print(f"⚠️ Deal {deal_id} ist nach Close noch in get_positions() enthalten!")
+        print("📋 Offene Positionen lt. API:", ids)
+        if deal_id_str:
+            print("🆔 Close-Request mit dealId:", deal_id_str, "direction:", direction)
         else:
-            print(f"✅ Deal {deal_id} wurde entfernt (Portfolio synchron).")
+            print("🆔 Close-Request ohne dealId → nur epic:", epic, "direction:", direction)
+    except Exception as e:
+        print("⚠️ get_positions vor Close fehlgeschlagen:", e)
+
+    # Versuch 1: DELETE /positions/otc/{dealId}
+    if url_delete:
+        print(f"🔎 Versuche Close mit DELETE {url_delete} ...")
+        r = requests.delete(url_delete, headers={**headers, "_method": "DELETE"})
+        print(f"📩 Close-Response (DELETE): {r.status_code} {r.text}")
+        if r.status_code == 200:
+            return r
+
+    # Versuch 2: POST /positions/close
+    print(f"🔎 Versuche Close mit POST {url_post} ... Daten={data_deal}")
+    r = requests.post(url_post, headers=headers, json=data_deal)
+    print(f"📩 Close-Response (POST /close): {r.status_code} {r.text}")
+    if r.status_code == 200:
+        return r
+
+    # Versuch 3: PUT /positions/otc/{dealId}
+    if url_put:
+        print(f"🔎 Versuche Close mit PUT {url_put} ... Daten={data_deal}")
+        r = requests.put(url_put, headers=headers, json=data_deal)
+        print(f"📩 Close-Response (PUT): {r.status_code} {r.text}")
+        if r.status_code == 200:
+            return r
+
+    # Versuch 4: POST /positions/otc mit _method=DELETE + epic
+    print(f"🔎 Versuche Close mit POST {url_otc} + _method=DELETE ... Daten={data_epic}")
+    r = requests.post(url_otc, headers={**headers, "_method": "DELETE"}, json=data_epic)
+    print(f"📩 Close-Response (POST /otc _method=DELETE): {r.status_code} {r.text}")
+    if r.status_code == 200:
+        return r
+
+    # Debug: nachsehen, ob Position noch existiert
+    try:
+        positions = get_positions(CST, XSEC)
+        ids = [p["position"]["dealId"] for p in positions if "position" in p]
+        if deal_id_str and deal_id_str in ids:
+            print(f"⚠️ Deal {deal_id_str} ist nach allen Versuchen noch offen!")
+        else:
+            print(f"✅ Position scheint entfernt (oder kein dealId mehr sichtbar).")
     except Exception as e:
         print("⚠️ Abgleich mit get_positions nach Close fehlgeschlagen:", e)
 
     return r
-
-
 
 
 # ==============================
@@ -297,37 +314,102 @@ def evaluate_trend_signal(epic, closes, spread):
 # Hilfsfunktionen für robustes Open/Close
 # ==============================
 
-def safe_close(CST, XSEC, deal_id, size=1, epic=None):
+def safe_close(CST, XSEC, epic, deal_id=None, size=1):
     # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
-    r = close_position(CST, XSEC, deal_id, size)
+    # Holt sich die Richtung aus open_positions[epic] oder notfalls via get_positions().
+
+    # Richtung und dealId ermitteln
+    direction = None
+    if epic in open_positions and isinstance(open_positions[epic], dict):
+        direction = open_positions[epic].get("direction")
+        if not deal_id:
+            deal_id = open_positions[epic].get("dealId")
+
+    # Fallback: API direkt fragen
+    if not deal_id or not direction:
+        positions = get_positions(CST, XSEC)
+        if positions:
+            for pos in positions:
+                position = pos.get("position")
+                if position and position.get("epic") == epic:
+                    deal_id = position.get("dealId")
+                    direction = position.get("direction")
+                    print(f"🔎 safe_close Fallback get_positions({epic}) → dealId={deal_id}, direction={direction}")
+                    break
+
+    # Wenn immer noch nichts → Notlösung
+    if not direction:
+        direction = "SELL"
+
+    # Gegenseite bestimmen
+    close_dir = "SELL" if direction == "BUY" else "BUY"
+
+    print(f"📊 [{epic}] Versuche Close (dealId={deal_id}, position={direction} → close_dir={close_dir}) ...")
+
+    # Close-Request starten
+    r = close_position(CST, XSEC, epic, deal_id=deal_id, size=size, direction=close_dir)
     ok = (r is not None and r.status_code == 200)
 
     if ok:
-        if epic:
-            open_positions[epic] = None
-            print(f"✅ [{epic}] Close erfolgreich → open_positions reset")
+        open_positions[epic] = None
+        print(f"✅ [{epic}] Close erfolgreich → open_positions reset")
 
         # Zusatz: nachprüfen, ob die Position wirklich weg ist
         try:
             positions = get_positions(CST, XSEC)
             ids = [p["position"]["dealId"] for p in positions if "position" in p]
-            if deal_id in ids:
+            if deal_id and deal_id in ids:
                 print(f"⚠️ [{epic}] Deal {deal_id} taucht nach Close noch in get_positions() auf!")
             else:
                 print(f"✅ [{epic}] Deal {deal_id} ist aus get_positions() verschwunden.")
         except Exception as e:
             print(f"⚠️ [{epic}] Abgleich nach Close fehlgeschlagen:", e)
-
     else:
-        print(f"⚠️ Close fehlgeschlagen (dealId={deal_id})")
+        print(f"⚠️ [{epic}] Close fehlgeschlagen (dealId={deal_id})")
 
     return ok
 
 
+
 def safe_open(CST, XSEC, epic, direction, size=1):
-    #Wrapper: Open-Order robust mit Retry.
+    # Wrapper: Open-Order robust mit Retry und Update von open_positions.
     r = open_position(CST, XSEC, epic, direction, size)
-    return (r is not None and r.status_code == 200)
+    ok = (r is not None and r.status_code == 200)
+
+    if ok:
+        try:
+            # Bestätigung noch einmal abfragen
+            ref = r.json().get("dealReference")
+            if ref:
+                conf_url = f"{BASE_REST}/api/v1/confirms/{ref}"
+                headers = {
+                    "X-CAP-API-KEY": API_KEY,
+                    "CST": CST,
+                    "X-SECURITY-TOKEN": XSEC,
+                    "Accept": "application/json"
+                }
+                conf = requests.get(conf_url, headers=headers)
+                if conf.status_code == 200:
+                    conf_data = conf.json()
+                    deal_id = None
+                    # zuerst echte Positions-ID aus affectedDeals nehmen
+                    if conf_data.get("affectedDeals"):
+                        deal_id = conf_data["affectedDeals"][0].get("dealId")
+                    # fallback: dealId aus Confirm selbst
+                    if not deal_id and conf_data.get("dealId"):
+                        deal_id = conf_data.get("dealId")
+
+                    if deal_id:
+                        open_positions[epic] = {"direction": direction, "dealId": str(deal_id)}
+                        print(f"🆕 [{epic}] Open erfolgreich → {direction} (dealId={deal_id})")
+                        return True
+        except Exception as e:
+            print(f"⚠️ [{epic}] Fehler beim Bestätigen von safe_open:", e)
+
+    else:
+        print(f"⚠️ [{epic}] Open fehlgeschlagen")
+
+    return ok
 
 
 # ==============================
@@ -343,35 +425,12 @@ YELLOW = "\033[93m"
 open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
 
 def decide_and_trade(CST, XSEC, epic, signal):
-    #Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben.
+    # Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben.
     global open_positions
 
-    # Aktuelle bekannte Position aus open_positions nehmen
     pos = open_positions.get(epic)
-    if isinstance(pos, dict):
-        current = pos.get("direction")
-        deal_id = pos.get("dealId")
-    else:
-        current = None
-        deal_id = None
-
-    def get_deal_info(epic):
-        #Hole Details zur offenen Position für ein Epic (Fallback).
-        positions = get_positions(CST, XSEC)
-        if not positions:
-            print("⚠️ get_positions() lieferte keine offenen Positionen")
-            return None
-
-        for pos in positions:
-            position = pos.get("position")
-            if not position:
-                print(f"⚠️ Unerwarteter Eintrag ohne 'position': {pos}")
-                continue
-            if position.get("epic") == epic:
-                return position
-
-        print(f"ℹ️ Keine Position für {epic} gefunden.")
-        return None
+    current = pos.get("direction") if isinstance(pos, dict) else None
+    deal_id = pos.get("dealId") if isinstance(pos, dict) else None
 
     # ===========================
     # LONG-SIGNAL
@@ -380,29 +439,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         if current == "BUY":
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
         elif current == "SELL":
-            # Wenn wir DealId schon haben → benutzen, sonst Fallback
-            if not deal_id:
-                deal = get_deal_info(epic)
-                print(f"🔎 get_deal_info({epic}) → {deal}")
-                if deal:
-                    deal_id = deal.get("dealId")
-            if deal_id:
-                print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
-                if safe_close(CST, XSEC, deal_id, epic=epic):
-                    open_positions[epic] = None
-                    if safe_open(CST, XSEC, epic, "BUY"):
-                        # Confirm in open_position setzt dann wieder open_positions[epic]
-                        pass
-                else:
-                    print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
+            print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
+            if safe_close(CST, XSEC, epic, deal_id=deal_id):
+                safe_open(CST, XSEC, epic, "BUY")
             else:
-                print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen (keine offene Position gefunden){Style.RESET_ALL}")
-                if safe_open(CST, XSEC, epic, "BUY"):
-                    pass
+                print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
-            if safe_open(CST, XSEC, epic, "BUY"):
-                pass
+            safe_open(CST, XSEC, epic, "BUY")
 
     # ===========================
     # SHORT-SIGNAL
@@ -411,27 +455,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         if current == "SELL":
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
         elif current == "BUY":
-            if not deal_id:
-                deal = get_deal_info(epic)
-                print(f"🔎 get_deal_info({epic}) → {deal}")
-                if deal:
-                    deal_id = deal.get("dealId")
-            if deal_id:
-                print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
-                if safe_close(CST, XSEC, deal_id, epic=epic):
-                    open_positions[epic] = None
-                    if safe_open(CST, XSEC, epic, "SELL"):
-                        pass
-                else:
-                    print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
+            print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
+            if safe_close(CST, XSEC, epic, deal_id=deal_id):
+                safe_open(CST, XSEC, epic, "SELL")
             else:
-                print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen (keine offene Position gefunden){Style.RESET_ALL}")
-                if safe_open(CST, XSEC, epic, "SELL"):
-                    pass
+                print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
-            if safe_open(CST, XSEC, epic, "SELL"):
-                pass
+            safe_open(CST, XSEC, epic, "SELL")
 
     # ===========================
     # KEIN KLARES SIGNAL
