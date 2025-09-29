@@ -83,7 +83,7 @@ def capital_login():
 # ==============================
 
 def get_positions(CST, XSEC, retry=True):
-    """Alle offenen Positionen abfragen."""
+    #Alle offenen Positionen abfragen.
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
         "X-CAP-API-KEY": API_KEY,
@@ -115,7 +115,7 @@ def get_positions(CST, XSEC, retry=True):
 
 
 def open_position(CST, XSEC, epic, direction, size=1, retry=True):
-    """Neue Position eröffnen (Market-Order) und echte Positions-dealId in open_positions merken."""
+    #Neue Position eröffnen (Market-Order) und echte Positions-dealId in open_positions merken.
     global open_positions
 
     url = f"{BASE_REST}/api/v1/positions"
@@ -166,6 +166,46 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
 
     return r
 
+def close_position(CST, XSEC, deal_id, size=1, retry=True):
+    #Offene Position schließen über DELETE /positions/otc/{dealId} mit Abgleich via get_positions.
+    url = f"{BASE_REST}/api/v1/positions/otc/{deal_id}"
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    print(f"🔎 Versuche Close mit DELETE {url} ...")
+    r = requests.delete(url, headers=headers)
+
+    if r is None:
+        print("⚠️ Close-Request hat keine Antwort geliefert!")
+        return None
+
+    # Session abgelaufen → Retry mit neuem Login
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (close_position) ...")
+        new_CST, new_XSEC = capital_login()
+        return close_position(new_CST, new_XSEC, deal_id, size, retry=False)
+
+    # Immer Rohdaten loggen
+    print(f"📩 Close-Response: {r.status_code} {r.text}")
+
+    # Zusatz: nachsehen, ob Position noch existiert
+    try:
+        positions = get_positions(CST, XSEC)
+        ids = [p["position"]["dealId"] for p in positions if "position" in p]
+        if deal_id in ids:
+            print(f"⚠️ Deal {deal_id} ist nach Close noch in get_positions() enthalten!")
+        else:
+            print(f"✅ Deal {deal_id} wurde entfernt (Portfolio synchron).")
+    except Exception as e:
+        print("⚠️ Abgleich mit get_positions nach Close fehlgeschlagen:", e)
+
+    return r
+
 
 
 
@@ -174,7 +214,7 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
 # ==============================
 
 def on_candle_forming(epic, bar, ts_ms):
-    """Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen)."""
+    #Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen).
     closes = list(candle_history[epic]) + [bar["close"]]
     spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
     trend = evaluate_trend_signal(epic, closes, spread)
@@ -212,7 +252,7 @@ def on_candle_close(epic, bar):
 
 
 def ema(values, period: int):
-    """Einfache EMA-Berechnung auf einer Liste von Werten."""
+    #Einfache EMA-Berechnung auf einer Liste von Werten.
     if len(values) < period:
         return None
     k = 2 / (period + 1)
@@ -222,7 +262,7 @@ def ema(values, period: int):
     return ema_val
 
 def evaluate_trend_signal(epic, closes, spread):
-    """Ermittle BUY/SELL/HOLD basierend auf EMA fast/slow und Spread-Filter."""
+    #Ermittle BUY/SELL/HOLD basierend auf EMA fast/slow und Spread-Filter.
     ema_fast = ema(closes, EMA_FAST)
     ema_slow = ema(closes, EMA_SLOW)
 
@@ -245,17 +285,23 @@ def evaluate_trend_signal(epic, closes, spread):
 # ==============================
 
 def safe_close(CST, XSEC, deal_id, size=1, epic=None):
-    """Wrapper: Close-Order robust mit Retry und Reset in open_positions."""
+    #Wrapper: Close-Order robust mit Retry und Reset in open_positions.
     r = close_position(CST, XSEC, deal_id, size)
     ok = (r is not None and r.status_code == 200)
-    if ok and epic:
-        open_positions[epic] = None
-        print(f"✅ [{epic}] Close erfolgreich → open_positions reset")
+
+    if ok:
+        if epic:
+            open_positions[epic] = None
+            print(f"✅ [{epic}] Close erfolgreich → open_positions reset")
+    else:
+        print(f"⚠️ Close fehlgeschlagen (dealId={deal_id})")
+
     return ok
 
 
+
 def safe_open(CST, XSEC, epic, direction, size=1):
-    """Wrapper: Open-Order robust mit Retry."""
+    #Wrapper: Open-Order robust mit Retry.
     r = open_position(CST, XSEC, epic, direction, size)
     return (r is not None and r.status_code == 200)
 
@@ -273,7 +319,7 @@ YELLOW = "\033[93m"
 open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
 
 def decide_and_trade(CST, XSEC, epic, signal):
-    """Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben."""
+    #Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben.
     global open_positions
 
     # Aktuelle bekannte Position aus open_positions nehmen
@@ -286,7 +332,7 @@ def decide_and_trade(CST, XSEC, epic, signal):
         deal_id = None
 
     def get_deal_info(epic):
-        """Hole Details zur offenen Position für ein Epic (Fallback)."""
+        #Hole Details zur offenen Position für ein Epic (Fallback).
         positions = get_positions(CST, XSEC)
         if not positions:
             print("⚠️ get_positions() lieferte keine offenen Positionen")
