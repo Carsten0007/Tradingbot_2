@@ -46,8 +46,8 @@ CST, XSEC = None, None
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 2   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5  # lange EMA-Periode (z. B. 21, 30, 50)
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -55,6 +55,8 @@ def to_local_dt(ms_since_epoch: int) -> datetime:
 # Candle-Historie für EMA-Berechnung
 candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
 
+# Merker: pro Instrument zuletzt ausgegebene Sekunde
+last_printed_sec = {epic: None for epic in INSTRUMENTS}
 
 # ==============================
 # LOGIN (entspricht Zelle B)
@@ -220,29 +222,34 @@ def close_position(CST, XSEC, deal_id, size=1, retry=True):
 # ==============================
 
 def on_candle_forming(epic, bar, ts_ms):
-    #Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen).
+    # Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen).
     closes = list(candle_history[epic]) + [bar["close"]]
     spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
     trend = evaluate_trend_signal(epic, closes, spread)
 
     # Zeit konvertieren
-    local_time = to_local_dt(ts_ms).strftime("%d.%m.%Y %H:%M:%S")
+    local_dt = to_local_dt(ts_ms)
+    local_time = local_dt.strftime("%d.%m.%Y %H:%M:%S")
 
-    # Nur bei neuem Close ausgeben
-    if bar["ticks"] == 1 or bar["close"] != bar.get("last_printed", None):
-        bar["last_printed"] = bar["close"]
-        if bar["close"] > bar["open"]:
-            instant = "BUY ✅"
-        elif bar["close"] < bar["open"]:
-            instant = "SELL ⛔"
-        else:
-            instant = "NEUTRAL ⚪"
+    # Nur letzten Tick pro Sekunde ausgeben
+    sec_key = local_dt.replace(microsecond=0)
+    if last_printed_sec[epic] == sec_key:
+        return
+    last_printed_sec[epic] = sec_key
 
-        print(
-            f"🔄 Forming-Signal [{epic}] {local_time} — "
-            f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
-            f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
-        )
+    if bar["close"] > bar["open"]:
+        instant = "BUY ✅"
+    elif bar["close"] < bar["open"]:
+        instant = "SELL ⛔"
+    else:
+        instant = "NEUTRAL ⚪"
+
+    print(
+        f"🔄 Forming-Signal [{epic}] {local_time} — "
+        f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
+        f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
+    )
+
 
 def on_candle_close(epic, bar):
     candle_history[epic].append(bar["close"])
