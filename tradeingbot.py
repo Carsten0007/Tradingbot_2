@@ -144,10 +144,10 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
     if r.status_code == 401 and retry:
         print("🔑 Session abgelaufen → erneuter Login (open_position) ...")
         new_CST, new_XSEC = capital_login()
-        return open_position(new_CST, new_XSEC, epic, direction, size, retry=False)
+        CST, XSEC = new_CST, new_XSEC  # global aktualisieren
+        raise RuntimeError("force_reconnect")
 
     print("📩 Order-Response:", r.status_code, r.text)
-
     return r
 
 
@@ -176,10 +176,12 @@ def close_position(CST, XSEC, epic, deal_id=None, retry=True):
     if r.status_code == 401 and retry:
         print("🔑 Session abgelaufen → erneuter Login (close_position) ...")
         new_CST, new_XSEC = capital_login()
-        return close_position(new_CST, new_XSEC, epic, deal_id, retry=False)
+        CST, XSEC = new_CST, new_XSEC  # global aktualisieren
+        raise RuntimeError("force_reconnect")
 
     print(f"📩 Close-Response: {r.status_code} {r.text}")
     return r
+
 
 
 
@@ -449,7 +451,6 @@ async def run_candle_aggregator_per_instrument():
     global CST, XSEC
 
     while True:  # Endlosschleife mit Reconnect & Token-Refresh
-        # Falls Tokens fehlen oder abgelaufen sind → neu einloggen
         if not CST or not XSEC:
             CST, XSEC = capital_login()
 
@@ -475,7 +476,7 @@ async def run_candle_aggregator_per_instrument():
                 while True:
                     now = time.time()
 
-                    # --- alle 20 Sekunden ein Ping ---
+                    # --- alle PING_INTERVAL Sekunden ein Ping ---
                     if now - last_ping > PING_INTERVAL:
                         try:
                             await ws.ping()
@@ -493,16 +494,13 @@ async def run_candle_aggregator_per_instrument():
                         break
                     except Exception as e:
                         print("⚠️ Fehler beim Empfangen:", e)
-                        # Session ungültig? → Tokens löschen → nächster Loop macht Login neu
-                        if "invalid.session.token" in str(e).lower():
+                        if "invalid.session.token" in str(e).lower() or "force_reconnect" in str(e).lower():
                             CST, XSEC = None, None
                         break
 
-                    # nur Quotes weiterverarbeiten
                     if msg.get("destination") != "quote":
                         continue
 
-                    # Payload robust auslesen
                     p = msg.get("payload", {})
                     epic = p.get("epic")
                     if not epic or epic not in states:
@@ -535,8 +533,8 @@ async def run_candle_aggregator_per_instrument():
                             st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
                         else:
                             b = st["bar"]
-                            b["high"]  = max(b["high"], px)
-                            b["low"]   = min(b["low"],  px)
+                            b["high"] = max(b["high"], px)
+                            b["low"] = min(b["low"], px)
                             b["close"] = px
                             b["ticks"] += 1
 
@@ -544,15 +542,13 @@ async def run_candle_aggregator_per_instrument():
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
-            if "invalid.session.token" in str(e).lower():
+            if "invalid.session.token" in str(e).lower() or "force_reconnect" in str(e).lower():
                 CST, XSEC = None, None
 
         print("⏳ 5s warten, dann neuer Versuch ...")
         await asyncio.sleep(RECONNECT_DELAY)
 
-
-
-
+#TESTMETHODE, öffnet und schließt sofort trade
 # def test_open_and_close(CST, XSEC, epic, direction="BUY", size=1):
 #     print(f"🧪 Test: Öffne {direction} für {epic} ...")
 #     if safe_open(CST, XSEC, epic, direction, size):
