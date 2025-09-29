@@ -52,8 +52,10 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 2   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 20  # lange EMA-Periode (z. B. 21, 30, 50)
+
+TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -63,6 +65,58 @@ candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
 
 # Merker: pro Instrument zuletzt ausgegebene Sekunde
 last_printed_sec = {epic: None for epic in INSTRUMENTS}
+
+
+# ==============================
+# TRADE berechnen aufgrund von verfügbarem Kontostand und %-davon
+# ==============================
+
+def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
+    # 1. Kontostand abrufen
+    url_acc = f"{BASE_REST}/api/v1/accounts"
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Accept": "application/json"
+    }
+    r_acc = requests.get(url_acc, headers=headers)
+    if r_acc.status_code != 200:
+        print("⚠️ Fehler beim Abrufen des Kontostands:", r_acc.status_code, r_acc.text)
+        return 1
+    acc_data = r_acc.json()
+    available = float(acc_data.get("availableToDeal", 0))
+    risk_amount = available * risk_pct
+
+    # 2. Instrument-Infos abrufen
+    url_mkt = f"{BASE_REST}/api/v1/markets/{epic}"
+    r_mkt = requests.get(url_mkt, headers=headers)
+    if r_mkt.status_code != 200:
+        print("⚠️ Fehler beim Abrufen der Marktdaten:", r_mkt.status_code, r_mkt.text)
+        return 1
+    mkt_data = r_mkt.json().get("instrument", {})
+    contract_size = float(mkt_data.get("contractSize", 1))
+    margin_factor = float(mkt_data.get("marginFactor", 1)) / 100  # kommt in %
+
+    # 3. Stück berechnen
+    # -> angenommener Kurs: letzter Preis aus Market-Details
+    snapshot = r_mkt.json().get("snapshot", {})
+    price = float(snapshot.get("bid", 1))
+    margin_per_unit = price * contract_size * margin_factor
+    if margin_per_unit <= 0:
+        return 1
+    size = risk_amount / margin_per_unit
+
+    print(f"📊 calc_trade_size Debug → risk_amount={risk_amount}, margin_per_unit={margin_per_unit}, "
+      f"raw_size={risk_amount / margin_per_unit}, size_rounded={round(size, 3)}, "
+      f"minDealSize={mkt_data.get('minDealSize')}, lotSize={mkt_data.get('lotSize')}")
+
+    size = 0.25 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+    return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
+
+
+
+
 
 # ==============================
 # LOGIN (entspricht Zelle B)
@@ -122,7 +176,7 @@ def get_positions(CST, XSEC, retry=True):
     return positions
 
 
-def open_position(CST, XSEC, epic, direction, size=1, retry=True):
+def open_position(CST, XSEC, epic, direction, size, retry=True):
     # Neue Position eröffnen (Market-Order), liefert Response-Objekt zurück.
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
@@ -335,9 +389,9 @@ def safe_close(CST, XSEC, epic, deal_id=None):
     return ok
 
 
-def safe_open(CST, XSEC, epic, direction, size=1):
+def safe_open(CST, XSEC, epic, direction, size):
     # Wrapper: Open-Order robust mit Retry und Update von open_positions.
-    r = open_position(CST, XSEC, epic, direction, size)
+    r = open_position(CST, XSEC, epic, direction, calc_trade_size(CST, XSEC, epic))
     ok = (r is not None and r.status_code == 200)
 
     if ok:
@@ -405,12 +459,12 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "SELL":
             print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "BUY")
+                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic))
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "BUY")
+            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic))
 
     # ===========================
     # SHORT-SIGNAL
@@ -421,12 +475,12 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "BUY":
             print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "SELL")
+                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic))
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "SELL")
+            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic))
 
     # ===========================
     # KEIN KLARES SIGNAL
