@@ -41,6 +41,12 @@ LOCAL_TZ = ZoneInfo("Europe/Berlin")
 
 CST, XSEC = None, None
 
+# ==============================
+# CONFIG ping
+# ==============================
+PING_INTERVAL    = 20   # Sekunden zwischen WebSocket-Pings
+RECONNECT_DELAY  = 5    # Sekunden warten nach Verbindungsabbruch
+RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
@@ -145,93 +151,36 @@ def open_position(CST, XSEC, epic, direction, size=1, retry=True):
     return r
 
 
-def close_position(CST, XSEC, epic, deal_id=None, size=1, direction="SELL", retry=True):
-    # Offene Position schließen – probiere DELETE, POST (/close), PUT und POST (/otc mit _method=DELETE)
+def close_position(CST, XSEC, epic, deal_id=None, retry=True):
+    # Offene Position schließen über DELETE /positions/{dealId}
+    if not deal_id:
+        print(f"⚠️ close_position: kein dealId übergeben für {epic}")
+        return None
 
-    deal_id_str = str(deal_id) if deal_id is not None else None
-
-    url_delete = f"{BASE_REST}/api/v1/positions/otc/{deal_id_str}" if deal_id_str else None
-    url_post   = f"{BASE_REST}/api/v1/positions/close"
-    url_put    = f"{BASE_REST}/api/v1/positions/otc/{deal_id_str}" if deal_id_str else None
-    url_otc    = f"{BASE_REST}/api/v1/positions/otc"
-
+    deal_id = str(deal_id)  # API erwartet string
+    url = f"{BASE_REST}/api/v1/positions/{deal_id}"
     headers = {
         "X-CAP-API-KEY": API_KEY,
         "CST": CST,
         "X-SECURITY-TOKEN": XSEC,
-        "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
-    # Payload-Varianten
-    data_deal = {
-        "dealId": deal_id_str,
-        "size": size,
-        "orderType": "MARKET",
-        "direction": direction
-    }
-    data_epic = {
-        "epic": epic,
-        "direction": direction,
-        "size": size,
-        "orderType": "MARKET",
-        "timeInForce": "FILL_OR_KILL"
-    }
+    print(f"🔎 Versuche Close mit DELETE {url} ...")
+    r = requests.delete(url, headers=headers)
 
-    # Debug: aktuelle offene Positionen checken
-    try:
-        positions = get_positions(CST, XSEC)
-        ids = [p["position"]["dealId"] for p in positions if "position" in p]
-        print("📋 Offene Positionen lt. API:", ids)
-        if deal_id_str:
-            print("🆔 Close-Request mit dealId:", deal_id_str, "direction:", direction)
-        else:
-            print("🆔 Close-Request ohne dealId → nur epic:", epic, "direction:", direction)
-    except Exception as e:
-        print("⚠️ get_positions vor Close fehlgeschlagen:", e)
+    if r is None:
+        print("⚠️ Close-Request hat keine Antwort geliefert!")
+        return None
 
-    # Versuch 1: DELETE /positions/otc/{dealId}
-    if url_delete:
-        print(f"🔎 Versuche Close mit DELETE {url_delete} ...")
-        r = requests.delete(url_delete, headers={**headers, "_method": "DELETE"})
-        print(f"📩 Close-Response (DELETE): {r.status_code} {r.text}")
-        if r.status_code == 200:
-            return r
+    if r.status_code == 401 and retry:
+        print("🔑 Session abgelaufen → erneuter Login (close_position) ...")
+        new_CST, new_XSEC = capital_login()
+        return close_position(new_CST, new_XSEC, epic, deal_id, retry=False)
 
-    # Versuch 2: POST /positions/close
-    print(f"🔎 Versuche Close mit POST {url_post} ... Daten={data_deal}")
-    r = requests.post(url_post, headers=headers, json=data_deal)
-    print(f"📩 Close-Response (POST /close): {r.status_code} {r.text}")
-    if r.status_code == 200:
-        return r
-
-    # Versuch 3: PUT /positions/otc/{dealId}
-    if url_put:
-        print(f"🔎 Versuche Close mit PUT {url_put} ... Daten={data_deal}")
-        r = requests.put(url_put, headers=headers, json=data_deal)
-        print(f"📩 Close-Response (PUT): {r.status_code} {r.text}")
-        if r.status_code == 200:
-            return r
-
-    # Versuch 4: POST /positions/otc mit _method=DELETE + epic
-    print(f"🔎 Versuche Close mit POST {url_otc} + _method=DELETE ... Daten={data_epic}")
-    r = requests.post(url_otc, headers={**headers, "_method": "DELETE"}, json=data_epic)
-    print(f"📩 Close-Response (POST /otc _method=DELETE): {r.status_code} {r.text}")
-    if r.status_code == 200:
-        return r
-
-    # Debug: nachsehen, ob Position noch existiert
-    try:
-        positions = get_positions(CST, XSEC)
-        ids = [p["position"]["dealId"] for p in positions if "position" in p]
-        if deal_id_str and deal_id_str in ids:
-            print(f"⚠️ Deal {deal_id_str} ist nach allen Versuchen noch offen!")
-        else:
-            print(f"✅ Position scheint entfernt (oder kein dealId mehr sichtbar).")
-    except Exception as e:
-        print("⚠️ Abgleich mit get_positions nach Close fehlgeschlagen:", e)
-
+    print(f"📩 Close-Response: {r.status_code} {r.text}")
     return r
+
 
 
 # ==============================
@@ -314,12 +263,15 @@ def evaluate_trend_signal(epic, closes, spread):
 # Hilfsfunktionen für robustes Open/Close
 # ==============================
 
-def safe_close(CST, XSEC, epic, deal_id=None, size=1):
-    # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
-    # Holt sich die Richtung aus open_positions[epic] oder notfalls via get_positions().
+import json
 
-    # Richtung und dealId ermitteln
+def safe_close(CST, XSEC, epic, deal_id=None):
+    # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
+    # Holt sich dealId und Richtung aus open_positions oder notfalls via get_positions().
+
     direction = None
+    full_position = None
+
     if epic in open_positions and isinstance(open_positions[epic], dict):
         direction = open_positions[epic].get("direction")
         if not deal_id:
@@ -332,22 +284,33 @@ def safe_close(CST, XSEC, epic, deal_id=None, size=1):
             for pos in positions:
                 position = pos.get("position")
                 if position and position.get("epic") == epic:
+                    full_position = pos  # komplette Rohdaten merken
                     deal_id = position.get("dealId")
                     direction = position.get("direction")
                     print(f"🔎 safe_close Fallback get_positions({epic}) → dealId={deal_id}, direction={direction}")
                     break
 
+    # Debug: komplette Positionsdaten dumpen
+    if full_position:
+        try:
+            print("📋 Vollständige Positionsdaten:", json.dumps(full_position, indent=2))
+        except Exception as e:
+            print("⚠️ Dump der Positionsdaten fehlgeschlagen:", e)
+
     # Wenn immer noch nichts → Notlösung
     if not direction:
         direction = "SELL"
 
-    # Gegenseite bestimmen
+    # Gegenseite nur fürs Log bestimmen
     close_dir = "SELL" if direction == "BUY" else "BUY"
 
     print(f"📊 [{epic}] Versuche Close (dealId={deal_id}, position={direction} → close_dir={close_dir}) ...")
 
-    # Close-Request starten
-    r = close_position(CST, XSEC, epic, deal_id=deal_id, size=size, direction=close_dir)
+    # Close-Request starten (API erwartet dealId als string)
+    if deal_id is not None:
+        deal_id = str(deal_id)
+
+    r = close_position(CST, XSEC, epic, deal_id=deal_id)
     ok = (r is not None and r.status_code == 200)
 
     if ok:
@@ -368,7 +331,6 @@ def safe_close(CST, XSEC, epic, deal_id=None, size=1):
         print(f"⚠️ [{epic}] Close fehlgeschlagen (dealId={deal_id})")
 
     return ok
-
 
 
 def safe_open(CST, XSEC, epic, direction, size=1):
@@ -508,19 +470,24 @@ async def run_candle_aggregator_per_instrument():
                 await ws.send(json.dumps(subscribe))
                 print("✅ Subscribed:", INSTRUMENTS)
 
-                last_msg = time.time()
+                last_ping = time.time()
 
                 while True:
-                    # --- alle 5 Minuten ein Ping ---
-                    if time.time() - last_msg > 300:
-                        await ws.ping()
-                        print("📡 Ping gesendet")
-                        last_msg = time.time()
+                    now = time.time()
+
+                    # --- alle 20 Sekunden ein Ping ---
+                    if now - last_ping > PING_INTERVAL:
+                        try:
+                            await ws.ping()
+                            print("📡 Ping gesendet")
+                            last_ping = now
+                        except Exception as e:
+                            print("⚠️ Ping fehlgeschlagen:", e)
+                            break
 
                     try:
-                        raw = await asyncio.wait_for(ws.recv(), timeout=60)
+                        raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT)
                         msg = json.loads(raw)
-                        last_msg = time.time()
                     except asyncio.TimeoutError:
                         print("⚠️ Timeout → reconnect ...")
                         break
@@ -581,7 +548,27 @@ async def run_candle_aggregator_per_instrument():
                 CST, XSEC = None, None
 
         print("⏳ 5s warten, dann neuer Versuch ...")
-        await asyncio.sleep(5)
+        await asyncio.sleep(RECONNECT_DELAY)
+
+
+
+
+# def test_open_and_close(CST, XSEC, epic, direction="BUY", size=1):
+#     print(f"🧪 Test: Öffne {direction} für {epic} ...")
+#     if safe_open(CST, XSEC, epic, direction, size):
+#         print(f"✅ Test-Open erfolgreich für {epic} → versuche sofort zu schließen ...")
+
+#         pos = open_positions.get(epic)
+#         deal_id = pos.get("dealId") if isinstance(pos, dict) else None
+
+#         if safe_close(CST, XSEC, epic, deal_id=deal_id):
+#             print(f"✅ Test-Close erfolgreich für {epic}")
+#         else:
+#             print(f"⚠️ Test-Close fehlgeschlagen für {epic}")
+#     else:
+#         print(f"⚠️ Test-Open fehlgeschlagen für {epic}")
+
+
 
 # ==============================
 # MAIN
@@ -589,4 +576,24 @@ async def run_candle_aggregator_per_instrument():
 
 if __name__ == "__main__":
     asyncio.run(run_candle_aggregator_per_instrument())
+
+
+
+# ==============================
+# MAIN test
+# ==============================
+
+# DEBUG_TEST = True  # 🧪 auf False setzen, wenn kein Testlauf gewünscht
+
+# if __name__ == "__main__":
+#     # Login holen
+#     CST, XSEC = capital_login()
+
+#     if DEBUG_TEST:
+#         # 🧪 Test: einmal öffnen & sofort wieder schließen
+#         test_open_and_close(CST, XSEC, "ETHUSD")
+
+#     # Danach normal den Bot starten
+#     asyncio.run(run_candle_aggregator_per_instrument())
+
 
