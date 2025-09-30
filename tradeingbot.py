@@ -356,7 +356,7 @@ def evaluate_trend_signal(epic, closes, spread):
 # Hilfsfunktionen für robustes Open/Close
 # ==============================
 
-import json
+
 
 def safe_close(CST, XSEC, epic, deal_id=None):
     # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
@@ -427,10 +427,25 @@ def safe_close(CST, XSEC, epic, deal_id=None):
 
 
 def safe_open(CST, XSEC, epic, direction, size, entry_price):
-    # Wrapper: Open-Order robust mit Retry + Übergabe Entry-Preis
-    r = open_position(CST, XSEC, epic, direction, size, entry_price)
-    return (r is not None and r.status_code == 200)
+    # Wrapper: Open-Order robust mit Retry + Ergänzen von Trailing Stop
+    global open_positions
 
+    r = open_position(CST, XSEC, epic, direction, size, entry_price)
+    ok = (r is not None and r.status_code == 200)
+
+    if ok and isinstance(open_positions.get(epic), dict):
+        # Trailing Stop initial setzen
+        if direction == "BUY":
+            trailing_stop = entry_price * (1 - TRAILING_STOP_PCT)
+        else:  # SELL
+            trailing_stop = entry_price * (1 + TRAILING_STOP_PCT)
+
+        # Nur Trailing Stop ergänzen
+        open_positions[epic]["trailing_stop"] = trailing_stop
+        print(f"🆕 [{epic}] Open erfolgreich → {direction} "
+              f"(dealId={open_positions[epic].get('dealId')}, entry={entry_price}, trailing={trailing_stop})")
+
+    return ok
 
 
 # ==============================
@@ -450,31 +465,38 @@ def check_protection_rules(epic, price, CST, XSEC):
     entry     = pos.get("entry_price")
     stop      = pos.get("trailing_stop")
 
-    if not (direction and deal_id and entry):
-        return
+    if not (direction and entry):
+        return  # unvollständige Daten
 
-    # Verlustgrenze berechnen
+    # ===== LONG =====
     if direction == "BUY":
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
-        # Trailing-Stop ggf. anpassen
+
+        # Trailing-Stop nachziehen
         if price > entry:
             new_trailing = price * (1 - TRAILING_STOP_PCT)
-            if new_trailing > stop:
+            if stop is None or new_trailing > stop:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
-        # Prüfen: SL oder TS verletzt?
-        if price <= stop_loss_level or price <= pos["trailing_stop"]:
+
+        # Stop prüfen
+        if price <= stop_loss_level or (stop is not None and price <= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe LONG")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
 
+    # ===== SHORT =====
     elif direction == "SELL":
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
+
+        # Trailing-Stop nachziehen
         if price < entry:
             new_trailing = price * (1 + TRAILING_STOP_PCT)
-            if new_trailing < stop:
+            if stop is None or new_trailing < stop:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
-        if price >= stop_loss_level or price >= pos["trailing_stop"]:
+
+        # Stop prüfen
+        if price >= stop_loss_level or (stop is not None and price >= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe SHORT")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
 
