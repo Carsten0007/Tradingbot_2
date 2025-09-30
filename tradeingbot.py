@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 2   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 5   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 15  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -320,7 +320,7 @@ def on_candle_close(epic, bar):
     )
 
     # Positions-Manager aufrufen
-    decide_and_trade(CST, XSEC, epic, signal)
+    decide_and_trade(CST, XSEC, epic, signal, bar["close"])
 
 
 def ema(values, period: int):
@@ -475,7 +475,10 @@ def check_protection_rules(epic, price, CST, XSEC):
         # Trailing-Stop nachziehen
         if price > entry:
             new_trailing = price * (1 - TRAILING_STOP_PCT)
-            if stop is None or new_trailing > stop:
+            if stop is None:
+                pos["trailing_stop"] = new_trailing
+                print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
+            elif new_trailing > stop:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
 
@@ -491,7 +494,10 @@ def check_protection_rules(epic, price, CST, XSEC):
         # Trailing-Stop nachziehen
         if price < entry:
             new_trailing = price * (1 + TRAILING_STOP_PCT)
-            if stop is None or new_trailing < stop:
+            if stop is None:
+                pos["trailing_stop"] = new_trailing
+                print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
+            elif new_trailing < stop:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
 
@@ -499,33 +505,6 @@ def check_protection_rules(epic, price, CST, XSEC):
         if price >= stop_loss_level or (stop is not None and price >= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe SHORT")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
-
-
-# ==============================
-# HILFSFUNKTION
-# ==============================
-
-def get_last_price(CST, XSEC, epic):
-    # Holt den letzten Bid/Ask für ein Instrument und gibt den Mid-Preis zurück
-    url = f"{BASE_REST}/api/v1/markets/{epic}"
-    headers = {
-        "X-CAP-API-KEY": API_KEY,
-        "CST": CST,
-        "X-SECURITY-TOKEN": XSEC,
-        "Accept": "application/json"
-    }
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        snapshot = r.json().get("snapshot", {})
-        try:
-            bid = float(snapshot.get("bid", 0))
-            ask = float(snapshot.get("ofr", 0))
-            return (bid + ask) / 2.0
-        except Exception:
-            pass
-    print(f"⚠️ get_last_price fehlgeschlagen für {epic} ({r.status_code})")
-    return None
-
 
 
 # ==============================
@@ -540,7 +519,7 @@ YELLOW = "\033[93m"
 
 open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
 
-def decide_and_trade(CST, XSEC, epic, signal):
+def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben.
     global open_positions
 
@@ -557,14 +536,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "SELL":
             print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                entry_price = get_last_price(CST, XSEC, epic)
-                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_price)
+                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
+
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
-            entry_price = get_last_price(CST, XSEC, epic)
-            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_price)
+            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
+
 
     # ===========================
     # SHORT-SIGNAL
@@ -575,14 +554,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "BUY":
             print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                entry_price = get_last_price(CST, XSEC, epic)
-                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_price)
+                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
+
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
-            entry_price = get_last_price(CST, XSEC, epic)
-            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_price)
+            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
+
 
     # ===========================
     # KEIN KLARES SIGNAL
