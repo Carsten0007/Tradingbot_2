@@ -44,7 +44,7 @@ CST, XSEC = None, None
 # ==============================
 # CONFIG ping
 # ==============================
-PING_INTERVAL    = 20   # Sekunden zwischen WebSocket-Pings
+PING_INTERVAL    = 300   # Sekunden zwischen WebSocket-Pings
 RECONNECT_DELAY  = 5    # Sekunden warten nach Verbindungsabbruch
 RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 
