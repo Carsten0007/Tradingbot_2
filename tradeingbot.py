@@ -52,17 +52,17 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 5   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 15  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 10  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.01   # fester Stop-Loss, z. B. -2%
-TRAILING_STOP_PCT  = 0.05   # Trailing Stop, z. B. 1% Abstand
-TAKE_PROFIT_PCT = 0.02  # z. B. +2% Gewinnziel
+STOP_LOSS_PCT      = 0.001   # fester Stop-Loss, z. B. 0,5%
+TRAILING_STOP_PCT  = 0.001   # Trailing Stop, z. B. 0,5% Abstand
+TAKE_PROFIT_PCT = 0.002  # z. B. 0,2% Gewinnziel
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
