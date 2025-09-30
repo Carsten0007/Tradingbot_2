@@ -60,9 +60,9 @@ TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.02   # fester Stop-Loss, z. B. -2%
-TRAILING_STOP_PCT  = 0.01   # Trailing Stop, z. B. 1% Abstand
-
+STOP_LOSS_PCT      = 0.01   # fester Stop-Loss, z. B. -2%
+TRAILING_STOP_PCT  = 0.05   # Trailing Stop, z. B. 1% Abstand
+TAKE_PROFIT_PCT = 0.02  # z. B. +2% Gewinnziel
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -452,8 +452,8 @@ def safe_open(CST, XSEC, epic, direction, size, entry_price):
 # STOP LOSS & TRAILING STOP überwachen
 # ==============================
 
-def check_protection_rules(epic, price, CST, XSEC):
-    # Prüft Stop-Loss und Trailing Stop für offene Positionen
+def check_protection_rules(epic, price, spread, CST, XSEC):
+    # Prüft Stop-Loss, Trailing Stop und Take-Profit für offene Positionen
     global open_positions
 
     pos = open_positions.get(epic)
@@ -468,9 +468,13 @@ def check_protection_rules(epic, price, CST, XSEC):
     if not (direction and entry):
         return  # unvollständige Daten
 
+    # Spread in Prozent bezogen auf Entry
+    spread_pct = spread / entry
+
     # ===== LONG =====
     if direction == "BUY":
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
+        take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
 
         # Trailing-Stop nachziehen
         if price > entry:
@@ -482,14 +486,18 @@ def check_protection_rules(epic, price, CST, XSEC):
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
 
-        # Stop prüfen
+        # Stops prüfen
         if price <= stop_loss_level or (stop is not None and price <= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe LONG")
+            safe_close(CST, XSEC, epic, deal_id=deal_id)
+        elif price >= take_profit_level:
+            print(f"✅ [{epic}] Take-Profit erreicht → schließe LONG")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
 
     # ===== SHORT =====
     elif direction == "SELL":
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
+        take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
         # Trailing-Stop nachziehen
         if price < entry:
@@ -501,9 +509,12 @@ def check_protection_rules(epic, price, CST, XSEC):
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
 
-        # Stop prüfen
+        # Stops prüfen
         if price >= stop_loss_level or (stop is not None and price >= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe SHORT")
+            safe_close(CST, XSEC, epic, deal_id=deal_id)
+        elif price <= take_profit_level:
+            print(f"✅ [{epic}] Take-Profit erreicht → schließe SHORT")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
 
 
@@ -650,6 +661,7 @@ async def run_candle_aggregator_per_instrument():
                         continue
 
                     px = (bid + ask) / 2.0
+                    spread = ask - bid
                     minute_key = local_minute_floor(ts_ms)
                     st = states[epic]
 
@@ -678,7 +690,7 @@ async def run_candle_aggregator_per_instrument():
 
                         # Schutz-Regeln prüfen (Stop-Loss & Trailing Stop)
                         current_price = st["bar"]["close"]
-                        check_protection_rules(epic, current_price, CST, XSEC)
+                        check_protection_rules(epic, current_price, spread, CST, XSEC)
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
@@ -688,48 +700,11 @@ async def run_candle_aggregator_per_instrument():
         print("⏳ 5s warten, dann neuer Versuch ...")
         await asyncio.sleep(RECONNECT_DELAY)
 
-#TESTMETHODE, öffnet und schließt sofort trade
-# def test_open_and_close(CST, XSEC, epic, direction="BUY", size=1):
-#     print(f"🧪 Test: Öffne {direction} für {epic} ...")
-#     if safe_open(CST, XSEC, epic, direction, size):
-#         print(f"✅ Test-Open erfolgreich für {epic} → versuche sofort zu schließen ...")
-
-#         pos = open_positions.get(epic)
-#         deal_id = pos.get("dealId") if isinstance(pos, dict) else None
-
-#         if safe_close(CST, XSEC, epic, deal_id=deal_id):
-#             print(f"✅ Test-Close erfolgreich für {epic}")
-#         else:
-#             print(f"⚠️ Test-Close fehlgeschlagen für {epic}")
-#     else:
-#         print(f"⚠️ Test-Open fehlgeschlagen für {epic}")
-
-
-
 # ==============================
 # MAIN
 # ==============================
 
 if __name__ == "__main__":
     asyncio.run(run_candle_aggregator_per_instrument())
-
-
-
-# ==============================
-# MAIN test
-# ==============================
-
-# DEBUG_TEST = True  # 🧪 auf False setzen, wenn kein Testlauf gewünscht
-
-# if __name__ == "__main__":
-#     # Login holen
-#     CST, XSEC = capital_login()
-
-#     if DEBUG_TEST:
-#         # 🧪 Test: einmal öffnen & sofort wieder schließen
-#         test_open_and_close(CST, XSEC, "ETHUSD")
-
-#     # Danach normal den Bot starten
-#     asyncio.run(run_candle_aggregator_per_instrument())
 
 
