@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 10  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -62,7 +62,7 @@ TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 # ==============================
 STOP_LOSS_PCT      = 0.001   # fester Stop-Loss, z. B. 0,5%
 TRAILING_STOP_PCT  = 0.001   # Trailing Stop, z. B. 0,5% Abstand
-TAKE_PROFIT_PCT = 0.002  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT = 0.005  # z. B. 0,2% Gewinnziel
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -72,7 +72,6 @@ candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
 
 # Merker: pro Instrument zuletzt ausgegebene Sekunde
 last_printed_sec = {epic: None for epic in INSTRUMENTS}
-
 
 # ==============================
 # TRADE berechnen aufgrund von verfügbarem Kontostand und %-davon
