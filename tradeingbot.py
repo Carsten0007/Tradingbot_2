@@ -303,10 +303,43 @@ def on_candle_forming(epic, bar, ts_ms):
     else:
         instant = "NEUTRAL ⚪"
 
+
+
+    # print(
+    #     f"🔄 Forming-Signal [{epic}] {local_time} — "
+    #     f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
+    #     f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
+    # )
+
+
+    # Offene Position abrufen für terminal ausgabe
+    pos = open_positions.get(epic)
+    sl = tp = ts = None
+    entry = None
+
+    if isinstance(pos, dict):
+        entry = pos.get("entry_price")
+        direction = pos.get("direction")
+        stop = pos.get("trailing_stop")
+
+        if entry and direction == "BUY":
+            sl = entry * (1 - STOP_LOSS_PCT)
+            tp = entry * (1 + TAKE_PROFIT_PCT)
+        elif entry and direction == "SELL":
+            sl = entry * (1 + STOP_LOSS_PCT)
+            tp = entry * (1 - TAKE_PROFIT_PCT)
+
+        ts = stop  # aktueller Trailing-Stop (falls gesetzt)
+
+    sl_str = f"{sl:.2f}" if isinstance(sl, (int, float)) else "-"
+    ts_str = f"{ts:.2f}" if isinstance(ts, (int, float)) else "-"
+    tp_str = f"{tp:.2f}" if isinstance(tp, (int, float)) else "-"
+
     print(
-        f"🔄 Forming-Signal [{epic}] {local_time} — "
-        f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
-        f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
+        f"[{epic}] {local_time} - "
+        f"O:{bar['open']:.2f} C:{bar['close']:.2f} (Ticks:{bar['ticks']}) → {instant} | "
+        f"Trend: {trend} "
+        f"- sl={sl_str} ts={ts_str} tp={tp_str}"
     )
 
 
