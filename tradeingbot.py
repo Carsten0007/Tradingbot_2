@@ -57,6 +57,13 @@ EMA_SLOW = 4  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
+# ==============================
+# Risk Management Parameter
+# ==============================
+STOP_LOSS_PCT      = 0.02   # fester Stop-Loss, z. B. -2%
+TRAILING_STOP_PCT  = 0.01   # Trailing Stop, z. B. 1% Abstand
+
+
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
 
@@ -176,7 +183,7 @@ def get_positions(CST, XSEC, retry=True):
     return positions
 
 
-def open_position(CST, XSEC, epic, direction, size, retry=True):
+def open_position(CST, XSEC, epic, direction, size, entry_price, retry=True):
     # Neue Position eröffnen (Market-Order), liefert Response-Objekt zurück.
     url = f"{BASE_REST}/api/v1/positions"
     headers = {
@@ -202,6 +209,36 @@ def open_position(CST, XSEC, epic, direction, size, retry=True):
         raise RuntimeError("force_reconnect")
 
     print("📩 Order-Response:", r.status_code, r.text)
+
+    if r.status_code == 200:
+        try:
+            ref = r.json().get("dealReference")
+            if ref:
+                conf_url = f"{BASE_REST}/api/v1/confirms/{ref}"
+                conf = requests.get(conf_url, headers=headers)
+                if conf.status_code == 200:
+                    conf_data = conf.json()
+                    deal_id = None
+
+                    affected = conf_data.get("affectedDeals")
+                    if affected and isinstance(affected, list) and affected:
+                        deal_id = affected[0].get("dealId")
+
+                    if not deal_id and conf_data.get("dealId"):
+                        deal_id = conf_data.get("dealId")
+
+                    if deal_id:
+                        open_positions[epic] = {
+                            "direction": direction,
+                            "dealId": deal_id,
+                            "entry_price": entry_price,
+                            "trailing_stop": None
+                        }
+                        print(f"🆕 [{epic}] Open erfolgreich → {direction} (dealId={deal_id}, entry={entry_price})")
+                    else:
+                        print(f"⚠️ Keine dealId aus Confirm extrahiert für {epic}")
+        except Exception as e:
+            print("⚠️ Confirm-Check fehlgeschlagen:", e)
     return r
 
 
@@ -389,45 +426,84 @@ def safe_close(CST, XSEC, epic, deal_id=None):
     return ok
 
 
-def safe_open(CST, XSEC, epic, direction, size):
-    # Wrapper: Open-Order robust mit Retry und Update von open_positions.
-    r = open_position(CST, XSEC, epic, direction, calc_trade_size(CST, XSEC, epic))
-    ok = (r is not None and r.status_code == 200)
+def safe_open(CST, XSEC, epic, direction, size, entry_price):
+    # Wrapper: Open-Order robust mit Retry + Übergabe Entry-Preis
+    r = open_position(CST, XSEC, epic, direction, size, entry_price)
+    return (r is not None and r.status_code == 200)
 
-    if ok:
+
+
+# ==============================
+# STOP LOSS & TRAILING STOP überwachen
+# ==============================
+
+def check_protection_rules(epic, price, CST, XSEC):
+    # Prüft Stop-Loss und Trailing Stop für offene Positionen
+    global open_positions
+
+    pos = open_positions.get(epic)
+    if not isinstance(pos, dict):
+        return  # keine offene Position
+
+    direction = pos.get("direction")
+    deal_id   = pos.get("dealId")
+    entry     = pos.get("entry_price")
+    stop      = pos.get("trailing_stop")
+
+    if not (direction and deal_id and entry):
+        return
+
+    # Verlustgrenze berechnen
+    if direction == "BUY":
+        stop_loss_level = entry * (1 - STOP_LOSS_PCT)
+        # Trailing-Stop ggf. anpassen
+        if price > entry:
+            new_trailing = price * (1 - TRAILING_STOP_PCT)
+            if new_trailing > stop:
+                pos["trailing_stop"] = new_trailing
+                print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
+        # Prüfen: SL oder TS verletzt?
+        if price <= stop_loss_level or price <= pos["trailing_stop"]:
+            print(f"⛔ [{epic}] Stop ausgelöst → schließe LONG")
+            safe_close(CST, XSEC, epic, deal_id=deal_id)
+
+    elif direction == "SELL":
+        stop_loss_level = entry * (1 + STOP_LOSS_PCT)
+        if price < entry:
+            new_trailing = price * (1 + TRAILING_STOP_PCT)
+            if new_trailing < stop:
+                pos["trailing_stop"] = new_trailing
+                print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
+        if price >= stop_loss_level or price >= pos["trailing_stop"]:
+            print(f"⛔ [{epic}] Stop ausgelöst → schließe SHORT")
+            safe_close(CST, XSEC, epic, deal_id=deal_id)
+
+
+# ==============================
+# HILFSFUNKTION
+# ==============================
+
+def get_last_price(CST, XSEC, epic):
+    # Holt den letzten Bid/Ask für ein Instrument und gibt den Mid-Preis zurück
+    url = f"{BASE_REST}/api/v1/markets/{epic}"
+    headers = {
+        "X-CAP-API-KEY": API_KEY,
+        "CST": CST,
+        "X-SECURITY-TOKEN": XSEC,
+        "Accept": "application/json"
+    }
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        snapshot = r.json().get("snapshot", {})
         try:
-            # Bestätigung noch einmal abfragen
-            ref = r.json().get("dealReference")
-            if ref:
-                conf_url = f"{BASE_REST}/api/v1/confirms/{ref}"
-                headers = {
-                    "X-CAP-API-KEY": API_KEY,
-                    "CST": CST,
-                    "X-SECURITY-TOKEN": XSEC,
-                    "Accept": "application/json"
-                }
-                conf = requests.get(conf_url, headers=headers)
-                if conf.status_code == 200:
-                    conf_data = conf.json()
-                    deal_id = None
-                    # zuerst echte Positions-ID aus affectedDeals nehmen
-                    if conf_data.get("affectedDeals"):
-                        deal_id = conf_data["affectedDeals"][0].get("dealId")
-                    # fallback: dealId aus Confirm selbst
-                    if not deal_id and conf_data.get("dealId"):
-                        deal_id = conf_data.get("dealId")
+            bid = float(snapshot.get("bid", 0))
+            ask = float(snapshot.get("ofr", 0))
+            return (bid + ask) / 2.0
+        except Exception:
+            pass
+    print(f"⚠️ get_last_price fehlgeschlagen für {epic} ({r.status_code})")
+    return None
 
-                    if deal_id:
-                        open_positions[epic] = {"direction": direction, "dealId": str(deal_id)}
-                        print(f"🆕 [{epic}] Open erfolgreich → {direction} (dealId={deal_id})")
-                        return True
-        except Exception as e:
-            print(f"⚠️ [{epic}] Fehler beim Bestätigen von safe_open:", e)
-
-    else:
-        print(f"⚠️ [{epic}] Open fehlgeschlagen")
-
-    return ok
 
 
 # ==============================
@@ -459,12 +535,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "SELL":
             print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic))
+                entry_price = get_last_price(CST, XSEC, epic)
+                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_price)
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic))
+            entry_price = get_last_price(CST, XSEC, epic)
+            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_price)
 
     # ===========================
     # SHORT-SIGNAL
@@ -475,12 +553,14 @@ def decide_and_trade(CST, XSEC, epic, signal):
         elif current == "BUY":
             print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
             if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic))
+                entry_price = get_last_price(CST, XSEC, epic)
+                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_price)
             else:
                 print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic))
+            entry_price = get_last_price(CST, XSEC, epic)
+            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_price)
 
     # ===========================
     # KEIN KLARES SIGNAL
@@ -492,6 +572,7 @@ def decide_and_trade(CST, XSEC, epic, signal):
             print(f"{Fore.RED}🤔 [{epic}] SHORT offen → Signal = {signal}{Style.RESET_ALL}")
         else:
             print(f"{Fore.YELLOW}🤔 [{epic}] Kein Trade offen → Signal = {signal}{Style.RESET_ALL}")
+
 
 # ==============================
 # CANDLE-AGGREGATOR (Zelle C)
@@ -593,6 +674,10 @@ async def run_candle_aggregator_per_instrument():
                             b["ticks"] += 1
 
                         on_candle_forming(epic, st["bar"], ts_ms)
+
+                        # Schutz-Regeln prüfen (Stop-Loss & Trailing Stop)
+                        current_price = st["bar"]["close"]
+                        check_protection_rules(epic, current_price, CST, XSEC)
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
