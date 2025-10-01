@@ -511,7 +511,7 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
 
         # 🔒 Break-Even Stop: sobald minimaler Gewinn > BREAK_EVEN_STOP erreicht
         if price >= entry * (1 + BREAK_EVEN_STOP): 
-            be_stop = entry + spread + BREAK_EVEN_STOP * entry
+            be_stop = entry + spread
             if stop is None or be_stop > stop:
                 pos["trailing_stop"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
@@ -541,7 +541,7 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
 
         # 🔒 Break-Even Stop: sobald minimaler Gewinn > BREAK_EVEN_STOP erreicht
         if price <= entry * (1 - BREAK_EVEN_STOP):
-            be_stop = entry - spread - BREAK_EVEN_STOP * entry
+            be_stop = entry - spread
             if stop is None or be_stop < stop:
                 pos["trailing_stop"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
