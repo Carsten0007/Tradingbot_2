@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 8   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 20  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -62,10 +62,14 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.0015   # fester Stop-Loss, z. B. 0,5%
-TRAILING_STOP_PCT  = 0.001   # Trailing Stop, z. B. 0,5% Abstand
-TAKE_PROFIT_PCT = 0.005  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.000125 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+STOP_LOSS_PCT      = 0.004   # fester Stop-Loss, z. B. 0,5%
+TRAILING_STOP_PCT  = 0.003   # Trailing Stop, z. B. 0,5% Abstand
+TAKE_PROFIT_PCT = 0.01  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP = 0.0005 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+
+# funzt ~
+# EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
+
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -298,6 +302,20 @@ def on_candle_forming(epic, bar, ts_ms):
         return
     last_printed_sec[epic] = sec_key
 
+    # # Debug: EMA/HMA-Vergleich 1x pro Sekunde
+    # ema_fast = ema(closes, EMA_FAST)
+    # ema_slow = ema(closes, EMA_SLOW)
+    # hma_fast = hma(closes, EMA_FAST)
+    # hma_slow = hma(closes, EMA_SLOW)
+    # if None not in (ema_fast, ema_slow, hma_fast, hma_slow):
+    #     print(
+    #         f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
+    #         f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
+    #         f"Close={bar['close']:.2f}"
+    #     )
+    # else:
+    #     print(f"[{epic}] zu wenig Daten für EMA/HMA (Kerzen: {len(closes)})")
+
     if bar["close"] > bar["open"]:
         instant = "BUY ✅"
     elif bar["close"] < bar["open"]:
@@ -305,14 +323,11 @@ def on_candle_forming(epic, bar, ts_ms):
     else:
         instant = "NEUTRAL ⚪"
 
-
-
     # print(
     #     f"🔄 Forming-Signal [{epic}] {local_time} — "
     #     f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
     #     f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
     # )
-
 
     # Offene Position abrufen für terminal ausgabe
     pos = open_positions.get(epic)
@@ -387,17 +402,25 @@ def hma(values, period: int):
     # Hull Moving Average
     if len(values) < period:
         return None
+
     half_len = period // 2
     sqrt_len = int(period ** 0.5)
 
-    wma_half = wma(values, half_len)
-    wma_full = wma(values, period)
+    # Serie der "raw"-Werte
+    raw_series = []
+    for i in range(period, len(values) + 1):
+        segment = values[i - period:i]
+        wma_half = wma(segment, half_len)
+        wma_full = wma(segment, period)
+        if wma_half is not None and wma_full is not None:
+            raw_series.append(2 * wma_half - wma_full)
 
-    if wma_half is None or wma_full is None:
+    if len(raw_series) < sqrt_len:
         return None
 
-    raw = 2 * wma_half - wma_full
-    return wma([raw], sqrt_len)
+    # finale Glättung
+    return wma(raw_series, sqrt_len)
+
 
 # ==============================
 # TRADE SIGNAL mit EMA UND WMA / HMA
@@ -417,17 +440,18 @@ def evaluate_trend_signal(epic, closes, spread):
         ma_fast, ma_slow, ma_type = ema_fast, ema_slow, "EMA"
 
     if ma_fast is None or ma_slow is None:
-        return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
+        #return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
+        return f"HOLD (zu wenig Daten: {len(closes)}/{EMA_SLOW})"
 
     last_close = closes[-1]
     prev_close = closes[-2]
 
-    # Debug-Ausgabe für Vergleich
-    print(
-        f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
-        f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
-        f"Close={last_close:.2f}"
-    )
+    # # Debug-Ausgabe für Vergleich
+    # print(
+    #     f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
+    #     f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
+    #     f"Close={last_close:.2f}"
+    # )
 
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
