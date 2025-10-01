@@ -57,6 +57,8 @@ EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
+USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+
 # ==============================
 # Risk Management Parameter
 # ==============================
@@ -356,6 +358,10 @@ def on_candle_close(epic, bar):
     decide_and_trade(CST, XSEC, epic, signal, bar["close"])
 
 
+# ==============================
+# EMA BERECHNUNG
+# ==============================
+
 def ema(values, period: int):
     #Einfache EMA-Berechnung auf einer Liste von Werten.
     if len(values) < period:
@@ -366,30 +372,75 @@ def ema(values, period: int):
         ema_val = v * k + ema_val * (1 - k)
     return ema_val
 
+# ==============================
+# WMA & HMA BERECHNUNG
+# ==============================
+
+def wma(values, period: int):
+    # Weighted Moving Average
+    if len(values) < period:
+        return None
+    weights = list(range(1, period + 1))
+    return sum(v * w for v, w in zip(values[-period:], weights)) / sum(weights)
+
+def hma(values, period: int):
+    # Hull Moving Average
+    if len(values) < period:
+        return None
+    half_len = period // 2
+    sqrt_len = int(period ** 0.5)
+
+    wma_half = wma(values, half_len)
+    wma_full = wma(values, period)
+
+    if wma_half is None or wma_full is None:
+        return None
+
+    raw = 2 * wma_half - wma_full
+    return wma([raw], sqrt_len)
+
+# ==============================
+# TRADE SIGNAL mit EMA UND WMA / HMA
+# ==============================
+
 def evaluate_trend_signal(epic, closes, spread):
-    #Ermittle BUY/SELL/HOLD basierend auf EMA fast/slow und Spread-Filter.
+    # Immer beide berechnen
     ema_fast = ema(closes, EMA_FAST)
     ema_slow = ema(closes, EMA_SLOW)
+    hma_fast = hma(closes, EMA_FAST)
+    hma_slow = hma(closes, EMA_SLOW)
 
-    if ema_fast is None or ema_slow is None:
+    # Je nach Schalter verwenden wir EMA oder HMA
+    if USE_HMA:
+        ma_fast, ma_slow, ma_type = hma_fast, hma_slow, "HMA"
+    else:
+        ma_fast, ma_slow, ma_type = ema_fast, ema_slow, "EMA"
+
+    if ma_fast is None or ma_slow is None:
         return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
 
     last_close = closes[-1]
     prev_close = closes[-2]
 
-    if ema_fast > ema_slow and (last_close - prev_close) > 2 * spread:
-        return "READY TO TRADE: BUY ✅"
-    elif ema_fast < ema_slow and (prev_close - last_close) > 2 * spread:
-        return "READY TO TRADE: SELL ⛔"
+    # Debug-Ausgabe für Vergleich
+    print(
+        f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
+        f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
+        f"Close={last_close:.2f}"
+    )
+
+    # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
+    if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
+        return f"READY TO TRADE: BUY ✅ ({ma_type})"
+    elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
+        return f"READY TO TRADE: SELL ⛔ ({ma_type})"
     else:
-        return "UNSAFE ⚪"
+        return f"UNSAFE ⚪ ({ma_type})"
 
 
 # ==============================
 # Hilfsfunktionen für robustes Open/Close
 # ==============================
-
-
 
 def safe_close(CST, XSEC, epic, deal_id=None):
     # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
