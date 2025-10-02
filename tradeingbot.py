@@ -63,7 +63,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # Risk Management Parameter
 # ==============================
 STOP_LOSS_PCT      = 0.002   # fester Stop-Loss, z. B. 0,5%
-TRAILING_STOP_PCT  = 0.002   # Trailing Stop, z. B. 0,5% Abstand
+TRAILING_STOP_PCT  = 0.001   # Trailing Stop, z. B. 0,5% Abstand
 TAKE_PROFIT_PCT = 0.01  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP = 0.00025 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
@@ -667,15 +667,10 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     if signal.startswith("READY TO TRADE: BUY"):
         if current == "BUY":
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
-        # flips nicht zulassen / auskommentiert
-        # elif current == "SELL":
-        #     print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
-        #     if safe_close(CST, XSEC, epic, deal_id=deal_id):
-        #         safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
-
-        #     else:
-        #         print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
-        else:
+        elif current == "SELL":
+            # Flip unterdrückt → nur Info ausgeben
+            print(Fore.YELLOW + f"🔒 [{epic}] Flip SELL→BUY ignoriert, SHORT bleibt offen.")
+        elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
             safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
 
@@ -686,15 +681,10 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     elif signal.startswith("READY TO TRADE: SELL"):
         if current == "SELL":
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
-        # flips nicht zulassen / auskommentiert
-        # # elif current == "BUY":
-        #     print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
-        #     if safe_close(CST, XSEC, epic, deal_id=deal_id):
-        #         safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
-
-        #     else:
-        #         print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
-        else:
+        elif current == "BUY":
+            # Flip unterdrückt → nur Info ausgeben
+            print(Fore.YELLOW + f"🔒 [{epic}] Flip BUY→SELL ignoriert, LONG bleibt offen.")
+        elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
             safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
 
