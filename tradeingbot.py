@@ -667,13 +667,14 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     if signal.startswith("READY TO TRADE: BUY"):
         if current == "BUY":
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
-        elif current == "SELL":
-            print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
-            if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
+        # flips nicht zulassen / auskommentiert
+        # elif current == "SELL":
+        #     print(Fore.YELLOW + f"📊 [{epic}] Versuche SHORT zu schließen (dealId={deal_id})")
+        #     if safe_close(CST, XSEC, epic, deal_id=deal_id):
+        #         safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
 
-            else:
-                print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
+        #     else:
+        #         print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
             safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
@@ -685,13 +686,14 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     elif signal.startswith("READY TO TRADE: SELL"):
         if current == "SELL":
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
-        elif current == "BUY":
-            print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
-            if safe_close(CST, XSEC, epic, deal_id=deal_id):
-                safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
+        # flips nicht zulassen / auskommentiert
+        # # elif current == "BUY":
+        #     print(f"{Fore.YELLOW}📊 [{epic}] Versuche LONG zu schließen (dealId={deal_id}){Style.RESET_ALL}")
+        #     if safe_close(CST, XSEC, epic, deal_id=deal_id):
+        #         safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
 
-            else:
-                print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
+        #     else:
+        #         print(Fore.RED + f"⚠️ [{epic}] Close fehlgeschlagen, retry beim nächsten Signal")
         else:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
             safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
