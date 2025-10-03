@@ -62,10 +62,10 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.002   # fester Stop-Loss, z. B. 0,5%
-TRAILING_STOP_PCT  = 0.001   # Trailing Stop, z. B. 0,5% Abstand
+STOP_LOSS_PCT      = 0.001   # fester Stop-Loss, z. B. 0,5%
+TRAILING_STOP_PCT  = 0.0005   # Trailing Stop, z. B. 0,5% Abstand
 TAKE_PROFIT_PCT = 0.01  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.00025 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP = 0.0002 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
