@@ -62,10 +62,10 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.001   # fester Stop-Loss, z. B. 0,5%
+STOP_LOSS_PCT      = 0.0015   # fester Stop-Loss, z. B. 0,5%
 TRAILING_STOP_PCT  = 0.002   # Trailing Stop, z. B. 0,5% Abstand
 TAKE_PROFIT_PCT = 0.01  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.0002 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP = 0.0005 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -584,10 +584,10 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
         take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
 
-        # 🔒 Break-Even Stop: sobald minimaler Gewinn > BREAK_EVEN_STOP erreicht
-        if price >= (entry + spread) * (1 + BREAK_EVEN_STOP): 
-            be_stop = entry + spread
-            if stop is None or be_stop > stop:
+        # 🔒 Break-Even Stop: erst aktivieren, wenn Kurs stabil über Entry + Spread + Puffer
+        if price >= entry * (1 + BREAK_EVEN_STOP) + spread:
+            be_stop = entry + spread * 0.9  # leicht unter Entry+Spread für Sicherheit
+            if (stop is None or stop < entry) and price > entry:
                 pos["trailing_stop"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
 
@@ -614,10 +614,10 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
         take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
-        # 🔒 Break-Even Stop: sobald minimaler Gewinn > BREAK_EVEN_STOP erreicht
-        if price <= (entry - spread) * (1 - BREAK_EVEN_STOP):
-            be_stop = entry - spread
-            if stop is None or be_stop < stop:
+        # 🔒 Break-Even Stop: erst aktivieren, wenn Kurs stabil unter Entry - Spread - Puffer
+        if price <= entry * (1 - BREAK_EVEN_STOP) - spread:
+            be_stop = entry - spread * 0.9  # leicht über Entry-Spread für Sicherheit
+            if (stop is None or stop > entry) and price < entry:
                 pos["trailing_stop"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
 
