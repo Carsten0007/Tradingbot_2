@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 7  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -62,10 +62,10 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.0012   # fester Stop-Loss, z. B. 0,5%
-TRAILING_STOP_PCT  = 0.0010   # Trailing Stop, z. B. 0,5% Abstand
-TAKE_PROFIT_PCT = 0.0045  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.00025 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+TRAILING_STOP_PCT  = 0.0018   # Trailing Stop
+TAKE_PROFIT_PCT = 0.0055  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP = 0.0007 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -322,13 +322,7 @@ def on_candle_forming(epic, bar, ts_ms):
         instant = "SELL ⛔"
     else:
         instant = "NEUTRAL ⚪"
-
-    # print(
-    #     f"🔄 Forming-Signal [{epic}] {local_time} — "
-    #     f"O:{bar['open']:.2f} C:{bar['close']:.2f} "
-    #     f"(Ticks:{bar['ticks']}) → {instant} | Trend: {trend}"
-    # )
-
+  
     # Offene Position abrufen für terminal ausgabe
     pos = open_positions.get(epic)
     sl = tp = ts = None
@@ -354,7 +348,7 @@ def on_candle_forming(epic, bar, ts_ms):
 
     print(
         f"[{epic}] {local_time} - "
-        f"O:{bar['open']:.2f} C:{bar['close']:.2f} (Ticks:{bar['ticks']}) → {instant} | "
+        f"O:{bar['open']:.2f} C:{bar['close']:.2f} (tks:{bar['ticks']}) → {instant} | "
         f"Trend: {trend} "
         f"- sl={sl_str} ts={ts_str} tp={tp_str}"
     )
@@ -455,11 +449,11 @@ def evaluate_trend_signal(epic, closes, spread):
 
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
-        return f"READY TO TRADE: BUY ✅ ({ma_type})"
+        return f"TRADEBEREIT: BUY ✅ ({ma_type})"
     elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
-        return f"READY TO TRADE: SELL ⛔ ({ma_type})"
+        return f"TRADEBEREIT: SELL ⛔ ({ma_type})"
     else:
-        return f"UNSAFE ⚪ ({ma_type})"
+        return f"UNSICHER ⚪ ({ma_type})"
 
 
 # ==============================
@@ -664,7 +658,7 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # ===========================
     # LONG-SIGNAL
     # ===========================
-    if signal.startswith("READY TO TRADE: BUY"):
+    if signal.startswith("TRADEBEREIT: BUY"):
         if current == "BUY":
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
         elif current == "SELL":
@@ -678,7 +672,7 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # ===========================
     # SHORT-SIGNAL
     # ===========================
-    elif signal.startswith("READY TO TRADE: SELL"):
+    elif signal.startswith("TRADEBEREIT: SELL"):
         if current == "SELL":
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
         elif current == "BUY":
@@ -785,7 +779,7 @@ async def run_candle_aggregator_per_instrument():
                         print(
                             f"\n✅ [{epic}] Closed 1m  {st['minute'].strftime('%d.%m.%Y %H:%M:%S %Z')}  "
                             f"O:{bar['open']:.2f} H:{bar['high']:.2f} L:{bar['low']:.2f} C:{bar['close']:.2f}  "
-                            f"Ticks:{bar['ticks']}"
+                            f"tks:{bar['ticks']}"
                         )
                         on_candle_close(epic, bar)
                         st["minute"] = minute_key
