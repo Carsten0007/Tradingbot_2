@@ -304,21 +304,7 @@ def on_candle_forming(epic, bar, ts_ms):
     if last_printed_sec[epic] == sec_key:
         return
     last_printed_sec[epic] = sec_key
-
-    # # Debug: EMA/HMA-Vergleich 1x pro Sekunde
-    # ema_fast = ema(closes, EMA_FAST)
-    # ema_slow = ema(closes, EMA_SLOW)
-    # hma_fast = hma(closes, EMA_FAST)
-    # hma_slow = hma(closes, EMA_SLOW)
-    # if None not in (ema_fast, ema_slow, hma_fast, hma_slow):
-    #     print(
-    #         f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
-    #         f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
-    #         f"Close={bar['close']:.2f}"
-    #     )
-    # else:
-    #     print(f"[{epic}] zu wenig Daten für EMA/HMA (Kerzen: {len(closes)})")
-
+   
     if bar["close"] > bar["open"]:
         instant = "BUY ✅"
     elif bar["close"] < bar["open"]:
@@ -356,7 +342,8 @@ def on_candle_forming(epic, bar, ts_ms):
         f"- sl={sl_str} ts={ts_str} tp={tp_str}"
     )
 
-    charts.update(epic, ts_ms, bar, trend, open_positions.get(epic, {}))
+    
+    
 
 
 def on_candle_close(epic, bar):
@@ -370,6 +357,19 @@ def on_candle_close(epic, bar):
 
     # Positions-Manager aufrufen
     decide_and_trade(CST, XSEC, epic, signal, bar["close"])
+
+    # Hook, nur für Kerzenwerte (1x pro Minute, EMA/HMA etc.)
+    charts.update(
+        epic,
+        ts_ms,
+        bar,
+        trend,
+        open_positions.get(epic, {}),
+        ema_fast=ema(closes, EMA_FAST),
+        ema_slow=ema(closes, EMA_SLOW),
+        hma_fast=hma(closes, EMA_FAST),
+        hma_slow=hma(closes, EMA_SLOW)
+    )
 
 
 # ==============================
@@ -793,6 +793,24 @@ async def run_candle_aggregator_per_instrument():
                     spread = ask - bid
                     minute_key = local_minute_floor(ts_ms)
                     st = states[epic]
+
+                    # Hook, 🧩 Live-Chart-Update auf Tick-Ebene
+                    charts.update(
+                        epic,
+                        ts_ms,
+                        {
+                            "bid": bid,
+                            "ask": ask,
+                            "open": px,
+                            "high": px,
+                            "low": px,
+                            "close": px,
+                            "ticks": st["bar"]["ticks"] if st["bar"] else 1
+                        },
+                        trend="LIVE",
+                        pos=open_positions.get(epic, {}),
+                    )
+
 
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
                         bar = st["bar"]
