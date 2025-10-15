@@ -10,6 +10,9 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
 from colorama import Fore, Style, init
+from chart_gui import ChartManager
+
+charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
 
 # ==============================
@@ -52,8 +55,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -352,6 +355,8 @@ def on_candle_forming(epic, bar, ts_ms):
         f"Trend: {trend} "
         f"- sl={sl_str} ts={ts_str} tp={tp_str}"
     )
+
+    charts.update(epic, ts_ms, bar, trend, open_positions.get(epic, {}))
 
 
 def on_candle_close(epic, bar):
