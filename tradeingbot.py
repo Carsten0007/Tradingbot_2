@@ -44,7 +44,7 @@ CST, XSEC = None, None
 # ==============================
 # CONFIG ping
 # ==============================
-PING_INTERVAL    = 300   # Sekunden zwischen WebSocket-Pings
+PING_INTERVAL    = 60   # Sekunden zwischen WebSocket-Pings
 RECONNECT_DELAY  = 5    # Sekunden warten nach Verbindungsabbruch
 RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 
@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 8   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 15  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -65,7 +65,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0018   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0050  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.0005 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP = 0.0004 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -555,12 +555,10 @@ def safe_open(CST, XSEC, epic, direction, size, entry_price):
 # ==============================
 
 def check_protection_rules(epic, price, spread, CST, XSEC):
-    # Prüft Stop-Loss, Trailing Stop, Take-Profit und Break-Even für offene Positionen
     global open_positions
-
     pos = open_positions.get(epic)
     if not isinstance(pos, dict):
-        return  # keine offene Position
+        return
 
     direction = pos.get("direction")
     deal_id   = pos.get("dealId")
@@ -568,9 +566,8 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
     stop      = pos.get("trailing_stop")
 
     if not (direction and entry):
-        return  # unvollständige Daten
+        return
 
-    # Spread in Prozent bezogen auf Entry
     spread_pct = spread / entry
 
     # ===== LONG =====
@@ -578,20 +575,14 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
         take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
 
-        # 🔒 Break-Even Stop: erst aktivieren, wenn Kurs stabil über Entry + Spread + Puffer
-        if price >= entry * (1 + BREAK_EVEN_STOP) + spread:
-            be_stop = entry + spread * 0.9  # leicht unter Entry+Spread für Sicherheit
+        # 🔒 Break-Even Stop
+        if price >= (entry + spread) * (1 + BREAK_EVEN_STOP):
+            be_stop = entry + spread * 0.9
             if (stop is None or stop < entry) and price > entry:
                 pos["trailing_stop"] = be_stop
-                pos["break_even_active"] = True          # 🟢 NEU: Marker für aktiven BE-Stop
-                pos["break_even_level"] = be_stop        # 🟢 NEU: merken für Schutzprüfung
+                pos["break_even_active"] = True
+                pos["break_even_level"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
-
-        # 🧠 NEU: Anti-Override-Schutz – Trailing darf nie unter Break-Even fallen
-        if pos.get("break_even_active") and "break_even_level" in pos:
-            if stop is not None and stop < pos["break_even_level"]:
-                pos["trailing_stop"] = pos["break_even_level"]
-                print(f"🛡️ [{epic}] Trailing-Stop angehoben (Break-Even-Schutz aktiv)")
 
         # 🔧 Trailing-Stop nachziehen
         if price > entry:
@@ -602,6 +593,12 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
             elif new_trailing > stop:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
+
+        # 🛡️ Break-Even-Schutz zuletzt prüfen
+        if pos.get("break_even_active") and "break_even_level" in pos:
+            if stop is not None and pos["trailing_stop"] < pos["break_even_level"]:
+                pos["trailing_stop"] = pos["break_even_level"]
+                print(f"🛡️ [{epic}] Trailing-Stop angehoben (Break-Even-Schutz aktiv)")
 
         # Stops prüfen
         if price <= stop_loss_level or (stop is not None and price <= stop):
@@ -616,20 +613,14 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
         take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
-        # 🔒 Break-Even Stop: erst aktivieren, wenn Kurs stabil unter Entry - Spread - Puffer
-        if price <= entry * (1 - BREAK_EVEN_STOP) - spread:
-            be_stop = entry - spread * 0.9  # leicht über Entry-Spread für Sicherheit
+        # 🔒 Break-Even Stop
+        if price <= (entry - spread) * (1 - BREAK_EVEN_STOP):
+            be_stop = entry - spread * 0.9
             if (stop is None or stop > entry) and price < entry:
                 pos["trailing_stop"] = be_stop
-                pos["break_even_active"] = True          # 🟢 NEU
-                pos["break_even_level"] = be_stop        # 🟢 NEU
+                pos["break_even_active"] = True
+                pos["break_even_level"] = be_stop
                 print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
-
-        # 🧠 NEU: Anti-Override-Schutz – Trailing darf nie über Break-Even steigen
-        if pos.get("break_even_active") and "break_even_level" in pos:
-            if stop is not None and stop > pos["break_even_level"]:
-                pos["trailing_stop"] = pos["break_even_level"]
-                print(f"🛡️ [{epic}] Trailing-Stop gesenkt (Break-Even-Schutz aktiv)")
 
         # 🔧 Trailing-Stop nachziehen
         if price < entry:
@@ -641,6 +632,12 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
 
+        # 🛡️ Break-Even-Schutz zuletzt prüfen
+        if pos.get("break_even_active") and "break_even_level" in pos:
+            if stop is not None and pos["trailing_stop"] > pos["break_even_level"]:
+                pos["trailing_stop"] = pos["break_even_level"]
+                print(f"🛡️ [{epic}] Trailing-Stop gesenkt (Break-Even-Schutz aktiv)")
+
         # Stops prüfen
         if price >= stop_loss_level or (stop is not None and price >= stop):
             print(f"⛔ [{epic}] Stop ausgelöst → schließe SHORT")
@@ -648,6 +645,7 @@ def check_protection_rules(epic, price, spread, CST, XSEC):
         elif price <= take_profit_level:
             print(f"✅ [{epic}] Take-Profit erreicht → schließe SHORT")
             safe_close(CST, XSEC, epic, deal_id=deal_id)
+
 
 
 
