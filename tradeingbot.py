@@ -358,17 +358,17 @@ def on_candle_close(epic, bar):
     # Positions-Manager aufrufen
     decide_and_trade(CST, XSEC, epic, signal, bar["close"])
 
-    # Hook, nur für Kerzenwerte (1x pro Minute, EMA/HMA etc.)
+    # Hook für Chart-Update (1x pro Minute, mit echten EMA/HMA-Werten)
     charts.update(
         epic,
-        ts_ms,
+        int(time.time() * 1000),  # ✅ aktueller Zeitstempel in ms
         bar,
-        trend,
-        open_positions.get(epic, {}),
-        ema_fast=ema(closes, EMA_FAST),
-        ema_slow=ema(closes, EMA_SLOW),
-        hma_fast=hma(closes, EMA_FAST),
-        hma_slow=hma(closes, EMA_SLOW)
+        signal,  # signal statt trend
+        open_positions.get(epic, {}),  # aktuelle Position
+        ema_fast=ema(candle_history[epic], EMA_FAST),
+        ema_slow=ema(candle_history[epic], EMA_SLOW),
+        hma_fast=hma(candle_history[epic], EMA_FAST),
+        hma_slow=hma(candle_history[epic], EMA_SLOW)
     )
 
 

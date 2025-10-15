@@ -132,11 +132,15 @@ class ChartManager:
 
         # Stops, Trailing, etc.
         for key in ["entry", "sl", "tp", "ts", "be"]:
-            vals = [d[key] for d in dq if d[key] is not None]
-            if vals:
+            vals = [d[key] for d in dq if d.get(key) is not None]
+            if len(vals) > 1 and len(times) >= len(vals):
                 lines[key].set_data(times[-len(vals):], vals[-len(vals):])
+            elif len(vals) == 1:
+                # Nur ein einzelner Punkt → als Linie mit 1 Punkt zeichnen
+                lines[key].set_data([times[-1]], [vals[-1]])
             else:
                 lines[key].set_data([], [])
+
 
         # EMA/HMA Linien
         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
