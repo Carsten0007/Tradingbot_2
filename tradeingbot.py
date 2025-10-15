@@ -52,8 +52,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 8   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 15  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -65,7 +65,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0018   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0050  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.0004 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP = 0.0005 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
