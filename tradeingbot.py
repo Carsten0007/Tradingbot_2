@@ -67,7 +67,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
-TAKE_PROFIT_PCT = 0.0500  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT = 0.0050  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP = 0.0003 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
@@ -343,7 +343,22 @@ def on_candle_forming(epic, bar, ts_ms):
     )
 
     
-    
+    # Hook🧩 Chart aktualisieren
+    charts.update(
+        epic,
+        ts_ms,
+        bar,
+        open_positions.get(epic, {}),
+        ema_fast=None,
+        ema_slow=None,
+        hma_fast=None,
+        hma_slow=None,
+        entry=entry,
+        sl=sl,
+        tp=tp,
+        ts=ts
+    )
+
 
 
 def on_candle_close(epic, bar):
@@ -358,19 +373,21 @@ def on_candle_close(epic, bar):
     # Positions-Manager aufrufen
     decide_and_trade(CST, XSEC, epic, signal, bar["close"])
 
-    # Hook für Chart-Update (1x pro Minute, mit echten EMA/HMA-Werten)
-    charts.update(
-        epic,
-        int(time.time() * 1000),  # ✅ aktueller Zeitstempel in ms
-        bar,
-        signal,  # signal statt trend
-        open_positions.get(epic, {}),  # aktuelle Position
-        ema_fast=ema(candle_history[epic], EMA_FAST),
-        ema_slow=ema(candle_history[epic], EMA_SLOW),
-        hma_fast=hma(candle_history[epic], EMA_FAST),
-        hma_slow=hma(candle_history[epic], EMA_SLOW)
-    )
-
+    # Nur aufrufen, wenn genügend Kerzen und keine None-Werte vorhanden
+    closes = [v for v in candle_history[epic] if v is not None]
+    if len(closes) >= EMA_SLOW:  # erst ab ausreichender Datenmenge
+        charts.update(
+            epic,
+            bar.get("timestamp") or int(time.time() * 1000),
+            bar,
+            open_positions.get(epic, {}),
+            ema_fast=ema(closes, EMA_FAST),
+            ema_slow=ema(closes, EMA_SLOW),
+            hma_fast=hma(closes, EMA_FAST),
+            hma_slow=hma(closes, EMA_SLOW)
+        )
+    else:
+        print(f"[Chart Hook {epic}] Noch zu wenige Kerzen für EMA/HMA ({len(closes)}/{EMA_SLOW})")
 
 # ==============================
 # EMA BERECHNUNG
@@ -794,23 +811,22 @@ async def run_candle_aggregator_per_instrument():
                     minute_key = local_minute_floor(ts_ms)
                     st = states[epic]
 
-                    # Hook, 🧩 Live-Chart-Update auf Tick-Ebene
-                    charts.update(
-                        epic,
-                        ts_ms,
-                        {
-                            "bid": bid,
-                            "ask": ask,
-                            "open": px,
-                            "high": px,
-                            "low": px,
-                            "close": px,
-                            "ticks": st["bar"]["ticks"] if st["bar"] else 1
-                        },
-                        trend="LIVE",
-                        pos=open_positions.get(epic, {}),
-                    )
-
+                    # Hook: 🧩 Live-Chart-Update auf Tick-Ebene
+                    if st.get("bar") is not None:
+                        charts.update(
+                            epic,
+                            ts_ms,  # ✅ API-basierter Timestamp, nicht time.time()
+                            {
+                                "bid": bid,
+                                "ask": ask,
+                                "open": st["bar"]["open"],
+                                "high": st["bar"]["high"],
+                                "low": st["bar"]["low"],
+                                "close": px,
+                                "ticks": st["bar"]["ticks"],
+                            },
+                            open_positions.get(epic, {})
+                        )
 
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
                         bar = st["bar"]

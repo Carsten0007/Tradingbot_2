@@ -19,8 +19,13 @@ class ChartManager:
     # -------------------------------------------------------
     #   Öffentliche Methode zum Aktualisieren
     # -------------------------------------------------------
-    def update(self, epic, ts_ms, bar, trend, pos,
-               ema_fast=None, ema_slow=None, hma_fast=None, hma_slow=None):
+    def update(
+        self, epic, ts_ms, bar, pos,
+        ema_fast=None, ema_slow=None, hma_fast=None, hma_slow=None,
+        entry=None, sl=None, tp=None, ts=None
+    ):
+
+                
         with self.lock:
             if epic not in self.data:
                 self._init_chart(epic)
@@ -43,11 +48,11 @@ class ChartManager:
                 "bid": bid,
                 "ask": ask,
                 "close": bar.get("close"),
-                "trend": trend,
-                "entry": entry_price,
-                "sl": pos.get("stop_loss") if isinstance(pos, dict) else None,
-                "tp": pos.get("take_profit") if isinstance(pos, dict) else None,
-                "ts": trailing_stop,
+                #"trend": trend,
+                "entry": entry or entry_price,
+                "sl": sl,
+                "tp": tp,
+                "ts": ts,
                 "be": break_even,
                 "ema_fast": ema_fast,
                 "ema_slow": ema_slow,
@@ -73,7 +78,9 @@ class ChartManager:
 
             # 🔁 Refresh
             self._refresh_chart(epic)
-            plt.pause(0.001)
+            plt.draw()          # Sofort rendern
+            self.lines[epic]["fig"].canvas.flush_events()
+
 
     # -------------------------------------------------------
     #   Neues Instrument initialisieren
