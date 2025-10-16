@@ -376,16 +376,44 @@ def on_candle_close(epic, bar):
     # Nur aufrufen, wenn genügend Kerzen und keine None-Werte vorhanden
     closes = [v for v in candle_history[epic] if v is not None]
     if len(closes) >= EMA_SLOW:  # erst ab ausreichender Datenmenge
+
+        # 🧩 Stop-/Trade-Werte aus aktueller Position extrahieren
+        pos = open_positions.get(epic, {})
+        entry = pos.get("entry_price") if isinstance(pos, dict) else None
+        direction = pos.get("direction") if isinstance(pos, dict) else None
+        stop = pos.get("trailing_stop") if isinstance(pos, dict) else None
+
+        if entry and direction == "BUY":
+            sl = entry * (1 - STOP_LOSS_PCT)
+            tp = entry * (1 + TAKE_PROFIT_PCT)
+        elif entry and direction == "SELL":
+            sl = entry * (1 + STOP_LOSS_PCT)
+            tp = entry * (1 - TAKE_PROFIT_PCT)
+        else:
+            sl = tp = None
+
+        ts = stop
+        be = pos.get("break_even_level") if isinstance(pos, dict) else None
+
+
         charts.update(
             epic,
             bar.get("timestamp") or int(time.time() * 1000),
-            bar,
+            {
+                **bar,
+                "sl": sl,
+                "tp": tp,
+                "ts": ts,
+                "be": be,
+                "entry": entry,
+            },
             open_positions.get(epic, {}),
             ema_fast=ema(closes, EMA_FAST),
             ema_slow=ema(closes, EMA_SLOW),
             hma_fast=hma(closes, EMA_FAST),
             hma_slow=hma(closes, EMA_SLOW)
         )
+
     else:
         print(f"[Chart Hook {epic}] Noch zu wenige Kerzen für EMA/HMA ({len(closes)}/{EMA_SLOW})")
 

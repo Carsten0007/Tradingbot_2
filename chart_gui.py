@@ -23,15 +23,19 @@ class ChartManager:
         self, epic, ts_ms, bar, pos,
         ema_fast=None, ema_slow=None, hma_fast=None, hma_slow=None,
         entry=None, sl=None, tp=None, ts=None
-    ):
-
-                
+):
         with self.lock:
             if epic not in self.data:
                 self._init_chart(epic)
 
             dq = self.data[epic]
-            now = dt.datetime.fromtimestamp(ts_ms / 1000.0)
+
+            # Einheitliche lokale Zeit (identisch zu tradeingbot)
+            try:
+                from tradeingbot import to_local_dt
+                now = to_local_dt(ts_ms)
+            except ImportError:
+                now = dt.datetime.fromtimestamp(ts_ms / 1000.0)
 
             # Positionsdaten sicher lesen
             entry_price = pos.get("entry_price") if isinstance(pos, dict) else None
@@ -43,43 +47,69 @@ class ChartManager:
             bid = bar.get("bid")
             ask = bar.get("ask")
 
+            # 🧠 Letzten Datensatz übernehmen, falls neue Werte fehlen
+            last = dq[-1] if dq else {}
+
+            entry = bar.get("entry") or last.get("entry")
+            sl = bar.get("sl") or last.get("sl")
+            tp = bar.get("tp") or last.get("tp")
+            ts = bar.get("ts") or last.get("ts")
+            be = bar.get("be") or last.get("be")
+
             dq.append({
                 "time": now,
                 "bid": bid,
                 "ask": ask,
                 "close": bar.get("close"),
-                #"trend": trend,
-                "entry": entry or entry_price,
+                "entry": entry,
                 "sl": sl,
                 "tp": tp,
-                "ts": ts,
-                "be": break_even,
+                "ts": ts or trailing_stop,  # Sicherungsfallback
+                "be": be or break_even,
                 "ema_fast": ema_fast,
                 "ema_slow": ema_slow,
                 "hma_fast": hma_fast,
                 "hma_slow": hma_slow,
-                "direction": direction
+                "direction": direction,
             })
+
+            # 🕒 Time-Sync-Fix – Datenpunkte chronologisch halten
+            # Falls ein verspäteter Tick kommt, sortieren wir die deque neu
+            if len(dq) > 2 and dq[-1]["time"] < dq[-2]["time"]:
+                dq = deque(sorted(dq, key=lambda x: x["time"]), maxlen=dq.maxlen)
+                self.data[epic] = dq
+
 
             # Rolling Window begrenzen
             while len(dq) > 2 and (now - dq[0]["time"]).total_seconds() > self.window:
                 dq.popleft()
 
-            # 🧠 Trade-Zustand prüfen
+           # 🧠 Trade-Zustand prüfen
             trade_open = bool(direction)
             last_state = self.last_trade_state.get(epic)
 
             if trade_open and not last_state:
+                # Neuer Trade erkannt
                 self._mark_entry(epic, entry_price)
+
             elif not trade_open and last_state:
+                # 🧹 Trade wurde gerade geschlossen → sofort alles löschen
+                self._clear_trade_lines(epic)
+                print(f"[Chart] Trade geschlossen → Linien für {epic} entfernt")
+
+            elif not trade_open and not last_state:
+                # Kein Trade aktiv → sicherheitshalber auch alle Linien leeren
                 self._clear_trade_lines(epic)
 
+            # Status speichern
             self.last_trade_state[epic] = trade_open
+
 
             # 🔁 Refresh
             self._refresh_chart(epic)
-            plt.draw()          # Sofort rendern
+            plt.draw()
             self.lines[epic]["fig"].canvas.flush_events()
+
 
 
     # -------------------------------------------------------
@@ -95,6 +125,14 @@ class ChartManager:
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+
+        # 🧭 Initial-Skalierung – 5 Minuten Fenster und Dummy-Y-Range
+        now = dt.datetime.now()
+        ax.set_xlim(now - dt.timedelta(seconds=self.window), now)
+
+        # Temporärer Y-Bereich, damit nichts flackert (z. B. ±1 % um 4000)
+        ax.set_ylim(3990, 4010)
+
 
         # Linien vorbereiten – deutlicher & konsistenter
         lines = {
@@ -137,31 +175,60 @@ class ChartManager:
         if asks:
             lines["ask"].set_data(times[-len(asks):], asks[-len(asks):])
 
-        # Stops, Trailing, etc.
+        # Stops, Trailing, etc. – durchgängig zeichnen
         for key in ["entry", "sl", "tp", "ts", "be"]:
-            vals = [d[key] for d in dq if d.get(key) is not None]
-            if len(vals) > 1 and len(times) >= len(vals):
-                lines[key].set_data(times[-len(vals):], vals[-len(vals):])
-            elif len(vals) == 1:
-                # Nur ein einzelner Punkt → als Linie mit 1 Punkt zeichnen
-                lines[key].set_data([times[-1]], [vals[-1]])
+            y = []
+            for d in dq:
+                val = d.get(key)
+                if val is not None:
+                    y.append(val)
+                elif len(y) > 0:
+                    # Wenn kein neuer Wert, letzten Wert fortführen
+                    y.append(y[-1])
+                else:
+                    y.append(None)
+            if any(v is not None for v in y):
+                lines[key].set_data(times, y)
             else:
                 lines[key].set_data([], [])
 
 
-        # EMA/HMA Linien
+
+        # 📈 EMA/HMA-Linien mit Sanity-Check (nur wenn genügend gültige Werte)
         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
-            vals = [d[key] for d in dq if d[key] is not None]
-            if vals:
-                lines[key].set_data(times[-len(vals):], vals[-len(vals):])
+            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
+            # Zeichne nur, wenn mindestens 3 aufeinanderfolgende Werte vorliegen
+            if len(vals) >= 3:
+                # Verwende gleiche Zeitlänge wie Werte, aber keine NaNs
+                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
+                lines[key].set_data(valid_times, vals)
+            else:
+                # Noch zu wenige Punkte → Linie leer lassen
+                lines[key].set_data([], [])
+
+
+            # Nur zeichnen, wenn es mindestens ein gültiges Segment gibt
+            if any(v is not None for v in y):
+                lines[key].set_data(times, y)
             else:
                 lines[key].set_data([], [])
 
-        # Achsen aktualisieren (nur, wenn Werte vorhanden)
+
+        # 🕒 X-Achsen-Fenster stabilisieren – immer "rollendes" Zeitfenster
         ax = lines["ax"]
+
         if bids or asks:
-            ax.relim()
-            ax.autoscale_view()
+            # Grenzen fest auf das 5-Minuten-Fenster setzen
+            min_time = times[0]
+            max_time = min_time + dt.timedelta(seconds=self.window)
+            ax.set_xlim(min_time, max_time)
+
+            # Y-Achse weiterhin automatisch, aber leicht gepuffert
+            all_prices = [v for v in (bids + asks) if v is not None]
+            if all_prices:
+                ymin, ymax = min(all_prices), max(all_prices)
+                padding = (ymax - ymin) * 0.02 if ymax > ymin else 0.01
+                ax.set_ylim(ymin - padding, ymax + padding)
 
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
