@@ -39,13 +39,7 @@ class ChartManager:
                 now = to_local_dt(ts_ms)
             except ImportError:
                 now = dt.datetime.fromtimestamp(ts_ms / 1000.0)
-
-            # Positionsdaten sicher lesen
-            entry_price = pos.get("entry_price") if isinstance(pos, dict) else None
-            trailing_stop = pos.get("trailing_stop") if isinstance(pos, dict) else None
-            break_even = pos.get("break_even_level") if isinstance(pos, dict) else None
-            direction = pos.get("direction") if isinstance(pos, dict) else None
-
+          
             # Bid / Ask übernehmen
             # 🧩 Sicherstellen, dass Bid/Ask immer float sind
             bid = bar.get("bid")
@@ -59,27 +53,40 @@ class ChartManager:
             # 🧠 Letzten Datensatz übernehmen, falls neue Werte fehlen
             last = dq[-1] if dq else {}
 
-            entry = bar.get("entry") or last.get("entry")
-            sl = bar.get("sl") or last.get("sl")
-            tp = bar.get("tp") or last.get("tp")
-            ts = bar.get("ts") or last.get("ts")
-            be = bar.get("be") or last.get("be")
-
             dq.append({
                 "time": now,
                 "bid": bid,
                 "ask": ask,
                 "close": bar.get("close"),
-                "entry": entry or entry_price,
-                "sl": float(pos.get("stop_loss")) if isinstance(pos.get("stop_loss"), (int, float, str)) and pos.get("stop_loss") not in (None, "None") else None,
-                "tp": float(pos.get("take_profit")) if isinstance(pos.get("take_profit"), (int, float, str)) and pos.get("take_profit") not in (None, "None") else None,
-                "ts": float(pos.get("trailing_stop")) if isinstance(pos.get("trailing_stop"), (int, float, str)) and pos.get("trailing_stop") not in (None, "None") else None,
-                "be": float(pos.get("break_even_level")) if isinstance(pos.get("break_even_level"), (int, float, str)) and pos.get("break_even_level") not in (None, "None") else None,
+
+                # Entry bleibt persistent, wenn kein neuer Wert kommt
+                "entry": bar.get("entry") or pos.get("entry_price") or last.get("entry"),
+
+                # Stop-Loss
+                "sl": float(bar.get("sl") or pos.get("stop_loss") or last.get("sl") or 0)
+                    if (bar.get("sl") or pos.get("stop_loss") or last.get("sl")) not in (None, "None")
+                    else None,
+
+                # Take-Profit
+                "tp": float(bar.get("tp") or pos.get("take_profit") or last.get("tp") or 0)
+                    if (bar.get("tp") or pos.get("take_profit") or last.get("tp")) not in (None, "None")
+                    else None,
+
+                # Trailing
+                "ts": float(bar.get("ts") or pos.get("trailing_stop") or last.get("ts") or 0)
+                    if (bar.get("ts") or pos.get("trailing_stop") or last.get("ts")) not in (None, "None")
+                    else None,
+
+                # Break-Even
+                "be": float(bar.get("be") or pos.get("break_even_level") or last.get("be") or 0)
+                    if (bar.get("be") or pos.get("break_even_level") or last.get("be")) not in (None, "None")
+                    else None,
+
                 "ema_fast": ema_fast,
                 "ema_slow": ema_slow,
                 "hma_fast": hma_fast,
                 "hma_slow": hma_slow,
-                "direction": direction,
+                "direction": pos.get("direction"),
             })
 
 
@@ -96,18 +103,23 @@ class ChartManager:
                 dq.popleft()
 
            # 🧠 Trade-Zustand prüfen
-            trade_open = bool(direction)
+            trade_open = bool(pos.get("entry_price"))
             last_state = self.last_trade_state.get(epic)
 
             if trade_open:
                 # Trade aktiv → Entry immer aktualisieren (Marker bleibt sichtbar)
-                self._mark_entry(epic, entry_price)
-
+                self._mark_entry(epic, pos.get("entry_price"))
 
             elif not trade_open and last_state:
                 # Trade wurde beendet – jetzt wirklich löschen
                 print(f"[Chart] {epic}: Trade beendet, lösche Linien ...")
                 self._clear_trade_lines(epic)
+
+                # Trade beendet – auch Datenpuffer (dq) leeren, damit keine alten Stops/Trailing neu erscheinen
+                for d in dq:
+                    for k in ["sl", "tp", "ts", "be", "entry"]:
+                        d[k] = None
+
                 # 🧩 Auch visuelle Linien sofort löschen
                 for key in ["sl", "tp", "ts", "be"]:
                     self.lines[epic][key].set_data([], [])
@@ -235,14 +247,13 @@ class ChartManager:
         
         # 🔹 Einzelwerte (Stop, TP, Trailing, Break-Even)
         for key in ["sl", "tp", "ts", "be"]:
-            # Letzten gültigen Wert übernehmen (z. B. bei Trade weiter aktiv)
-            last_val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
-            if last_val is not None:
+            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
+            if len(vals) >= 1:
                 valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
-                vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
                 lines[key].set_data(valid_times, vals)
             else:
                 lines[key].set_data([], [])
+
 
         # 🕒 X-Achsen-Fenster stabilisieren – immer "rollendes" Zeitfenster
         ax = lines["ax"]
@@ -272,12 +283,23 @@ class ChartManager:
                 min_time = max_time - dt.timedelta(seconds=self.window)
                 ax.set_xlim(min_time, max_time)
 
-            # Y-Achse weiterhin automatisch, aber leicht gepuffert
-            all_prices = [v for v in (bids + asks) if v is not None]
-            if all_prices:
-                ymin, ymax = min(all_prices), max(all_prices)
-                padding = (ymax - ymin) * 0.02 if ymax > ymin else 0.01
+            # 📏 Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
+            values = []
+
+            # 1️⃣ Bid / Ask
+            values += [v for v in (bids + asks) if v is not None]
+
+            # 2️⃣ Strategische Linien: SL, TP, TS, BE, Entry
+            for key in ["sl", "tp", "ts", "be", "entry"]:
+                vals = [d.get(key) for d in dq if isinstance(d.get(key), (int, float))]
+                values += vals
+
+            # 3️⃣ Berechnung + Puffer (ursprüngliche Logik beibehalten)
+            if values:
+                ymin, ymax = min(values), max(values)
+                padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
                 ax.set_ylim(ymin - padding, ymax + padding)
+
 
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()

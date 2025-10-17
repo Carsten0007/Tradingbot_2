@@ -371,7 +371,10 @@ def on_candle_close(epic, bar):
     )
 
     # Positions-Manager aufrufen
-    decide_and_trade(CST, XSEC, epic, signal, bar["close"])
+    # Entry-Preis auf Marktseite wählen (Ask bei BUY, Bid bei SELL)
+    entry_px = bar.get("ask") if signal.startswith("TRADEBEREIT: BUY") else bar.get("bid")
+    decide_and_trade(CST, XSEC, epic, signal, entry_px)
+
 
     # Nur aufrufen, wenn genügend Kerzen und keine None-Werte vorhanden
     closes = [v for v in candle_history[epic] if v is not None]
@@ -841,7 +844,7 @@ async def run_candle_aggregator_per_instrument():
 
                     # Hook: 🧩 Live-Chart-Update auf Tick-Ebene
                     if st.get("bar") is not None:
-                        # print(f"[DEBUG Chart-Hook] {epic} | bid={bid:.2f} ask={ask:.2f} ts={ts_ms}")
+                        #print(f"[DEBUG Chart-Hook] {epic} | bid={bid:.2f} ask={ask:.2f} ts={ts_ms}")
                         charts.update(
                             epic,
                             ts_ms,  # ✅ API-basierter Timestamp, nicht time.time()
@@ -859,6 +862,8 @@ async def run_candle_aggregator_per_instrument():
 
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
                         bar = st["bar"]
+                        bar["bid"] = bid
+                        bar["ask"] = ask
                         print(
                             f"\n✅ [{epic}] Closed 1m  {st['minute'].strftime('%d.%m.%Y %H:%M:%S %Z')}  "
                             f"O:{bar['open']:.2f} H:{bar['high']:.2f} L:{bar['low']:.2f} C:{bar['close']:.2f}  "
