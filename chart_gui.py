@@ -98,9 +98,9 @@ class ChartManager:
                 self.data[epic] = dq
 
 
-            # Rolling Window begrenzen
-            while len(dq) > 2 and (now - dq[0]["time"]).total_seconds() > self.window:
-                dq.popleft()
+            # # Rolling Window begrenzen
+            # while len(dq) > 2 and (now - dq[0]["time"]).total_seconds() > self.window:
+            #     dq.popleft()
 
            # 🧠 Trade-Zustand prüfen
             trade_open = bool(pos.get("entry_price"))
@@ -151,7 +151,7 @@ class ChartManager:
     #   Neues Instrument initialisieren
     # -------------------------------------------------------
     def _init_chart(self, epic):
-        dq = deque(maxlen=600)
+        dq = deque(maxlen=6000)
         self.data[epic] = dq
 
         fig, ax = plt.subplots()
@@ -255,68 +255,49 @@ class ChartManager:
                 lines[key].set_data([], [])
 
 
-        # 🕒 X-Achsen-Fenster stabilisieren – immer "rollendes" Zeitfenster
+        # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
         ax = lines["ax"]
 
         if bids or asks:
-            # 🧩 Falls Startbereich zu klein oder leer, dynamisch skalieren
-            if any(bids) and any(asks):
-                mid = (bids[-1] + asks[-1]) / 2
-                ax.set_ylim(mid - 15, mid + 15)
+            # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
+            max_time = times[-1]
+            min_time = max_time - dt.timedelta(seconds=self.window)
+            ax.set_xlim(min_time, max_time)
 
-            # 🩹 Dynamische X-Achsen-Anpassung – beim Start langsam wachsen lassen
-            if (times[-1] - times[0]).total_seconds() < self.window:
-                ax.set_xlim(times[0], times[-1])
-            else:
-                max_time = times[-1]
-                min_time = max_time - dt.timedelta(seconds=self.window)
-                ax.set_xlim(min_time, max_time)
-            
-            # 🕒 Dynamische Skalierung: erst wachsen, dann scrollen
-            elapsed = (times[-1] - times[0]).total_seconds()
-            if elapsed < self.window:
-                # Fenster wächst mit – füllt sich von links
-                ax.set_xlim(times[0], times[-1])
-            else:
-                # Danach: rollendes 5-Minuten-Fenster
-                max_time = times[-1]
-                min_time = max_time - dt.timedelta(seconds=self.window)
-                ax.set_xlim(min_time, max_time)
-
-            # 📏 Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
+            # 2️⃣ Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
             values = []
-
-            # 1️⃣ Bid / Ask
             values += [v for v in (bids + asks) if v is not None]
-
-            # 2️⃣ Strategische Linien: SL, TP, TS, BE, Entry
             for key in ["sl", "tp", "ts", "be", "entry"]:
                 vals = [d.get(key) for d in dq if isinstance(d.get(key), (int, float))]
                 values += vals
 
-            # 3️⃣ Berechnung + Puffer (ursprüngliche Logik beibehalten)
             if values:
                 ymin, ymax = min(values), max(values)
                 padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
                 ax.set_ylim(ymin - padding, ymax + padding)
 
-        # 🟩 Entry-Linie: horizontal über gesamte Zeitachse
-        entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
-        if entry_vals:
-            entry_price = entry_vals[-1]
-            x_min, x_max = ax.get_xlim()
-            # Horizontale Linie über gesamte X-Achse
-            lines["entry"].set_data([x_min, x_max], [entry_price, entry_price])
-        else:
-            lines["entry"].set_data([], [])
+        # 🟩 Entry-Linie: horizontal über gesamte Zeitachse (fix gegen Verschwinden)
+            entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
+            if entry_vals:
+                entry_price = entry_vals[-1]
+                try:
+                    x_min, x_max = ax.get_xlim()
+                    if x_min == x_max:
+                        x_min, x_max = times[0], times[-1]
+                except Exception:
+                    x_min, x_max = times[0], times[-1]
 
+                # Horizontale Linie über gesamte X-Achse
+                lines["entry"].set_data([x_min, x_max], [entry_price, entry_price])
+            else:
+                # Nur leeren, wenn kein aktiver Trade – sonst Linie halten
+                if not any(d.get("direction") for d in dq):
+                    lines["entry"].set_data([], [])
 
+        
+        # 🔁 Refresh
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
-
-        #if len(bids) > 0:
-            #print(f"[Chart Debug] {epic} Bid={bids[-1]:.2f} Ask={asks[-1]:.2f} -> Ylim={ax.get_ylim()}")
-
 
     # -------------------------------------------------------
     #   Entry-Marker
