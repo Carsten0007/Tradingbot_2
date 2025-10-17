@@ -25,6 +25,9 @@ class ChartManager:
         entry=None, sl=None, tp=None, ts=None
 ):
         with self.lock:
+            if pos is None:
+                pos = {}
+
             if epic not in self.data:
                 self._init_chart(epic)
 
@@ -67,17 +70,19 @@ class ChartManager:
                 "bid": bid,
                 "ask": ask,
                 "close": bar.get("close"),
-                "entry": entry,
-                "sl": sl,
-                "tp": tp,
-                "ts": ts or trailing_stop,  # Sicherungsfallback
-                "be": be or break_even,
+                "entry": entry or entry_price,
+                "sl": float(pos.get("stop_loss")) if isinstance(pos.get("stop_loss"), (int, float, str)) and pos.get("stop_loss") not in (None, "None") else None,
+                "tp": float(pos.get("take_profit")) if isinstance(pos.get("take_profit"), (int, float, str)) and pos.get("take_profit") not in (None, "None") else None,
+                "ts": float(pos.get("trailing_stop")) if isinstance(pos.get("trailing_stop"), (int, float, str)) and pos.get("trailing_stop") not in (None, "None") else None,
+                "be": float(pos.get("break_even_level")) if isinstance(pos.get("break_even_level"), (int, float, str)) and pos.get("break_even_level") not in (None, "None") else None,
                 "ema_fast": ema_fast,
                 "ema_slow": ema_slow,
                 "hma_fast": hma_fast,
                 "hma_slow": hma_slow,
                 "direction": direction,
             })
+
+
 
             # 🕒 Time-Sync-Fix – Datenpunkte chronologisch halten
             # Falls ein verspäteter Tick kommt, sortieren wir die deque neu
@@ -94,18 +99,30 @@ class ChartManager:
             trade_open = bool(direction)
             last_state = self.last_trade_state.get(epic)
 
-            if trade_open and not last_state:
-                # Neuer Trade erkannt
+            if trade_open:
+                # Trade aktiv → Entry immer aktualisieren (Marker bleibt sichtbar)
                 self._mark_entry(epic, entry_price)
 
-            elif not trade_open and last_state:
-                # 🧹 Trade wurde gerade geschlossen → sofort alles löschen
-                self._clear_trade_lines(epic)
-                print(f"[Chart] Trade geschlossen → Linien für {epic} entfernt")
 
-            elif not trade_open and not last_state:
-                # Kein Trade aktiv → sicherheitshalber auch alle Linien leeren
+            elif not trade_open and last_state:
+                # Trade wurde beendet – jetzt wirklich löschen
+                print(f"[Chart] {epic}: Trade beendet, lösche Linien ...")
                 self._clear_trade_lines(epic)
+                # 🧩 Auch visuelle Linien sofort löschen
+                for key in ["sl", "tp", "ts", "be"]:
+                    self.lines[epic][key].set_data([], [])
+                self.lines[epic]["entry_marker"].set_data([], [])
+                self.lines[epic]["entry"].set_data([], [])
+                self.lines[epic]["fig"].canvas.draw_idle()
+
+                # Stelle sicher, dass direction zurückgesetzt wird
+                for d in dq:
+                    d["direction"] = None
+
+
+            # elif not trade_open and not last_state:
+                # Kein Trade aktiv → sicherheitshalber auch alle Linien leeren
+                # self._clear_trade_lines(epic)
 
             # Status speichern
             self.last_trade_state[epic] = trade_open
@@ -169,11 +186,17 @@ class ChartManager:
     # -------------------------------------------------------
     def _refresh_chart(self, epic):
         dq = self.data[epic]
-        if len(dq) < 2:
+        if len(dq) < 1:
             return
 
         lines = self.lines[epic]
         times = [d["time"] for d in dq]
+
+        # 🚫 Falls kein Trade offen → BE-, SL-, TP-, TS-Linien löschen
+        if not any(d.get("direction") for d in dq if d.get("direction")):
+            for key in ["sl", "tp", "ts", "be"]:
+                lines[key].set_data([], [])
+
 
         # 🔧 Immer letzten bekannten Wert übernehmen (statt leere Stellen)
         bids, asks = [], []
@@ -201,27 +224,25 @@ class ChartManager:
         ax.set_ylim(mid - 15, mid + 15)
 
 
-
-
         # 📈 EMA/HMA-Linien mit Sanity-Check (nur wenn genügend gültige Werte)
         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
             vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
-            # Zeichne nur, wenn mindestens 3 aufeinanderfolgende Werte vorliegen
             if len(vals) >= 3:
-                # Verwende gleiche Zeitlänge wie Werte, aber keine NaNs
                 valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
                 lines[key].set_data(valid_times, vals)
             else:
-                # Noch zu wenige Punkte → Linie leer lassen
                 lines[key].set_data([], [])
-
-
-            # Nur zeichnen, wenn es mindestens ein gültiges Segment gibt
-            if any(v is not None for v in y):
-                lines[key].set_data(times, y)
+        
+        # 🔹 Einzelwerte (Stop, TP, Trailing, Break-Even)
+        for key in ["sl", "tp", "ts", "be"]:
+            # Letzten gültigen Wert übernehmen (z. B. bei Trade weiter aktiv)
+            last_val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+            if last_val is not None:
+                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
+                vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
+                lines[key].set_data(valid_times, vals)
             else:
                 lines[key].set_data([], [])
-
 
         # 🕒 X-Achsen-Fenster stabilisieren – immer "rollendes" Zeitfenster
         ax = lines["ax"]
@@ -232,10 +253,24 @@ class ChartManager:
                 mid = (bids[-1] + asks[-1]) / 2
                 ax.set_ylim(mid - 15, mid + 15)
 
-            # Grenzen fest auf das 5-Minuten-Fenster setzen
-            min_time = times[0]
-            max_time = min_time + dt.timedelta(seconds=self.window)
-            ax.set_xlim(min_time, max_time)
+            # 🩹 Dynamische X-Achsen-Anpassung – beim Start langsam wachsen lassen
+            if (times[-1] - times[0]).total_seconds() < self.window:
+                ax.set_xlim(times[0], times[-1])
+            else:
+                max_time = times[-1]
+                min_time = max_time - dt.timedelta(seconds=self.window)
+                ax.set_xlim(min_time, max_time)
+            
+            # 🕒 Dynamische Skalierung: erst wachsen, dann scrollen
+            elapsed = (times[-1] - times[0]).total_seconds()
+            if elapsed < self.window:
+                # Fenster wächst mit – füllt sich von links
+                ax.set_xlim(times[0], times[-1])
+            else:
+                # Danach: rollendes 5-Minuten-Fenster
+                max_time = times[-1]
+                min_time = max_time - dt.timedelta(seconds=self.window)
+                ax.set_xlim(min_time, max_time)
 
             # Y-Achse weiterhin automatisch, aber leicht gepuffert
             all_prices = [v for v in (bids + asks) if v is not None]
@@ -247,17 +282,31 @@ class ChartManager:
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
 
-        if len(bids) > 0:
-            print(f"[Chart Debug] {epic} Bid={bids[-1]:.2f} Ask={asks[-1]:.2f} -> Ylim={ax.get_ylim()}")
+        #if len(bids) > 0:
+            #print(f"[Chart Debug] {epic} Bid={bids[-1]:.2f} Ask={asks[-1]:.2f} -> Ylim={ax.get_ylim()}")
 
 
     # -------------------------------------------------------
     #   Entry-Marker
     # -------------------------------------------------------
     def _mark_entry(self, epic, price):
-        if epic in self.lines:
-            t = dt.datetime.now()
-            self.lines[epic]["entry_marker"].set_data([t], [price])
+        if not price or epic not in self.lines:
+            return
+
+        # Nur markieren, wenn noch kein Entry vorhanden ist
+        existing_x, existing_y = self.lines[epic]["entry_marker"].get_data()
+        if existing_x and existing_y:
+            return  # bereits gesetzt
+
+        # Zeitpunkt des letzten gültigen Datensatzes
+        t = self.data[epic][-1]["time"] if self.data.get(epic) else dt.datetime.now()
+
+        # Marker + Linie setzen
+        self.lines[epic]["entry_marker"].set_data([t], [price])
+        self.lines[epic]["entry"].set_data([t - dt.timedelta(seconds=1), t + dt.timedelta(seconds=1)], [price, price])
+
+        print(f"[Chart Debug] Entry fixiert {epic} @ {price:.2f}")
+
 
     # -------------------------------------------------------
     #   Linien löschen nach Trade-Ende
@@ -265,8 +314,13 @@ class ChartManager:
     def _clear_trade_lines(self, epic):
         if epic not in self.lines:
             return
-        dq = self.data.get(epic, deque())
-        dq.clear()  # <- leert die Datenpunkte
+
         for key in ["entry", "sl", "tp", "ts", "be", "entry_marker"]:
             self.lines[epic][key].set_data([], [])
+
+        # Reset des letzten Zustands
+        self.last_trade_state[epic] = False
+
+        print(f"[Chart] Trade beendet → Linien für {epic} entfernt, Bid/Ask bleiben erhalten")
         self.lines[epic]["fig"].canvas.draw_idle()
+
