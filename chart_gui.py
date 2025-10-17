@@ -152,7 +152,7 @@ class ChartManager:
     #   Neues Instrument initialisieren
     # -------------------------------------------------------
     def _init_chart(self, epic):
-        dq = deque(maxlen=6000)
+        dq = deque(maxlen=2000)
         self.data[epic] = dq
 
         fig, ax = plt.subplots()
