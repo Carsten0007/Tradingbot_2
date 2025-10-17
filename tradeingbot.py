@@ -841,6 +841,7 @@ async def run_candle_aggregator_per_instrument():
 
                     # Hook: 🧩 Live-Chart-Update auf Tick-Ebene
                     if st.get("bar") is not None:
+                        print(f"[DEBUG Chart-Hook] {epic} | bid={bid:.2f} ask={ask:.2f} ts={ts_ms}")
                         charts.update(
                             epic,
                             ts_ms,  # ✅ API-basierter Timestamp, nicht time.time()

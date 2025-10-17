@@ -44,8 +44,14 @@ class ChartManager:
             direction = pos.get("direction") if isinstance(pos, dict) else None
 
             # Bid / Ask übernehmen
+            # 🧩 Sicherstellen, dass Bid/Ask immer float sind
             bid = bar.get("bid")
             ask = bar.get("ask")
+            # Falls gültige Werte vorhanden → in float umwandeln
+            bid = float(bid) if bid not in (None, "None") else None
+            ask = float(ask) if ask not in (None, "None") else None
+
+
 
             # 🧠 Letzten Datensatz übernehmen, falls neue Werte fehlen
             last = dq[-1] if dq else {}
@@ -131,7 +137,9 @@ class ChartManager:
         ax.set_xlim(now - dt.timedelta(seconds=self.window), now)
 
         # Temporärer Y-Bereich, damit nichts flackert (z. B. ±1 % um 4000)
-        ax.set_ylim(3990, 4010)
+        # 🧠 Dynamischer Startbereich – später auto-angepasst
+        ax.set_ylim(3800, 4100)   # breiter Startbereich, damit Kurs sofort sichtbar ist
+
 
 
         # Linien vorbereiten – deutlicher & konsistenter
@@ -167,30 +175,31 @@ class ChartManager:
         lines = self.lines[epic]
         times = [d["time"] for d in dq]
 
-        # Bid / Ask nur zeichnen, wenn Werte vorhanden
-        bids = [d["bid"] for d in dq if d["bid"] is not None]
-        asks = [d["ask"] for d in dq if d["ask"] is not None]
-        if bids:
-            lines["bid"].set_data(times[-len(bids):], bids[-len(bids):])
-        if asks:
-            lines["ask"].set_data(times[-len(asks):], asks[-len(asks):])
+        # 🔧 Immer letzten bekannten Wert übernehmen (statt leere Stellen)
+        bids, asks = [], []
+        last_bid = last_ask = None
+        for d in dq:
+            if d.get("bid") is not None:
+                last_bid = d["bid"]
+            if d.get("ask") is not None:
+                last_ask = d["ask"]
+            bids.append(last_bid)
+            asks.append(last_ask)
 
-        # Stops, Trailing, etc. – durchgängig zeichnen
-        for key in ["entry", "sl", "tp", "ts", "be"]:
-            y = []
-            for d in dq:
-                val = d.get(key)
-                if val is not None:
-                    y.append(val)
-                elif len(y) > 0:
-                    # Wenn kein neuer Wert, letzten Wert fortführen
-                    y.append(y[-1])
-                else:
-                    y.append(None)
-            if any(v is not None for v in y):
-                lines[key].set_data(times, y)
-            else:
-                lines[key].set_data([], [])
+        # 📊 Nur gültige Punkte verwenden
+        valid_points = [(t, b, a) for t, b, a in zip(times, bids, asks) if b is not None and a is not None]
+        if not valid_points:
+            return  # kein einziger Tick → nichts zeichnen
+
+        t_vals, b_vals, a_vals = zip(*valid_points)
+        lines["bid"].set_data(t_vals, b_vals)
+        lines["ask"].set_data(t_vals, a_vals)
+
+        # 📏 Dynamische Initial-Skalierung
+        ax = self.lines[epic]["ax"]
+        mid = (b_vals[-1] + a_vals[-1]) / 2
+        ax.set_ylim(mid - 15, mid + 15)
+
 
 
 
@@ -218,6 +227,11 @@ class ChartManager:
         ax = lines["ax"]
 
         if bids or asks:
+            # 🧩 Falls Startbereich zu klein oder leer, dynamisch skalieren
+            if any(bids) and any(asks):
+                mid = (bids[-1] + asks[-1]) / 2
+                ax.set_ylim(mid - 15, mid + 15)
+
             # Grenzen fest auf das 5-Minuten-Fenster setzen
             min_time = times[0]
             max_time = min_time + dt.timedelta(seconds=self.window)
@@ -232,6 +246,10 @@ class ChartManager:
 
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
+
+        if len(bids) > 0:
+            print(f"[Chart Debug] {epic} Bid={bids[-1]:.2f} Ask={asks[-1]:.2f} -> Ylim={ax.get_ylim()}")
+
 
     # -------------------------------------------------------
     #   Entry-Marker
