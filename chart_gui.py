@@ -300,6 +300,16 @@ class ChartManager:
                 padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
                 ax.set_ylim(ymin - padding, ymax + padding)
 
+        # 🟩 Entry-Linie: horizontal über gesamte Zeitachse
+        entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
+        if entry_vals:
+            entry_price = entry_vals[-1]
+            x_min, x_max = ax.get_xlim()
+            # Horizontale Linie über gesamte X-Achse
+            lines["entry"].set_data([x_min, x_max], [entry_price, entry_price])
+        else:
+            lines["entry"].set_data([], [])
+
 
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
