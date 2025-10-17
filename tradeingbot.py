@@ -902,6 +902,15 @@ async def run_candle_aggregator_per_instrument():
 # ==============================
 
 if __name__ == "__main__":
-    asyncio.run(run_candle_aggregator_per_instrument())
+    try:
+        asyncio.run(run_candle_aggregator_per_instrument())
+    except KeyboardInterrupt:
+        print("\n🛑 Manuell abgebrochen (Ctrl+C erkannt)")
+        try:
+            import matplotlib.pyplot as plt
+            plt.close("all")
+        except Exception:
+            pass
+        os._exit(0)
 
 

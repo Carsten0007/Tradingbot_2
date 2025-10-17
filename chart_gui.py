@@ -2,9 +2,10 @@ import threading
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import datetime as dt
-from collections import deque
 import time
-
+from collections import deque
+from matplotlib.dates import DateFormatter
+from zoneinfo import ZoneInfo
 
 class ChartManager:
     def __init__(self, window_size_sec=300):
@@ -232,6 +233,10 @@ class ChartManager:
 
         # 📏 Dynamische Initial-Skalierung
         ax = self.lines[epic]["ax"]
+        # X-Achse: lokale Zeit anzeigen (z. B. Europe/Berlin)
+        ax.xaxis.set_major_formatter(
+            DateFormatter("%H:%M:%S", tz=ZoneInfo("Europe/Berlin"))
+        )
         mid = (b_vals[-1] + a_vals[-1]) / 2
         ax.set_ylim(mid - 15, mid + 15)
 
