@@ -890,9 +890,21 @@ async def run_candle_aggregator_per_instrument():
 
                         on_candle_forming(epic, st["bar"], ts_ms)
 
-                        # Schutz-Regeln prüfen (Stop-Loss & Trailing Stop)
-                        current_price = st["bar"]["close"]
-                        check_protection_rules(epic, current_price, spread, CST, XSEC)
+                        # Schutz-Regeln prüfen (Stop-Loss, Trailing, BE, TP)
+                        pos = open_positions.get(epic)
+                        if isinstance(pos, dict):
+                            direction = pos.get("direction")
+                            if direction == "BUY":
+                                price_for_check = st["bar"]["bid"]  # Long → Schließen bei Bid
+                            elif direction == "SELL":
+                                price_for_check = st["bar"]["ask"]  # Short → Schließen bei Ask
+                            else:
+                                price_for_check = st["bar"]["close"]  # neutraler Fallback
+                        else:
+                            price_for_check = st["bar"]["close"]
+
+                        check_protection_rules(epic, price_for_check, spread, CST, XSEC)
+
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
