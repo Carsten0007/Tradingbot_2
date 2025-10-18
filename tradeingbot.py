@@ -55,8 +55,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 3 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 7 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -735,13 +735,8 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
         elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
 
-            # ✅ Marktseitig korrekter Entry: BUY zum Ask
-            try:
-                entry_px = st["bar"]["ask"] if "st" in locals() and st.get("bar") else current_price
-            except Exception:
-                entry_px = current_price  # Fallback
-
-            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_px)
+            # ✅ Marktseitig korrekter Entry wird übergeben (Ask bei BUY)
+            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
 
 
     # ===========================
@@ -756,13 +751,9 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
         elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
 
-            # ✅ Marktseitig korrekter Entry: SELL zum Bid
-            try:
-                entry_px = st["bar"]["bid"] if "st" in locals() and st.get("bar") else current_price
-            except Exception:
-                entry_px = current_price  # Fallback
+            # ✅ Marktseitig korrekter Entry wird übergeben (Bid bei SELL)
+            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
 
-            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_px)
 
 
     # ===========================
@@ -905,11 +896,24 @@ async def run_candle_aggregator_per_instrument():
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
+
+            # Falls Session ungültig → Tokens zurücksetzen
             if "invalid.session.token" in str(e).lower() or "force_reconnect" in str(e).lower():
                 CST, XSEC = None, None
 
-        print("⏳ 5s warten, dann neuer Versuch ...")
-        await asyncio.sleep(RECONNECT_DELAY)
+            # 🔧 WebSocket sauber schließen, damit kein Zombie-Task hängen bleibt
+            try:
+                if "ws" in locals() and ws:
+                    await ws.close()
+            except Exception:
+                pass
+
+            # 🔁 Sicherstellen, dass beim nächsten Loop wirklich neu verbunden wird
+            ws = None
+            print("⏳ 5s warten, dann neuer Versuch ...")
+            await asyncio.sleep(RECONNECT_DELAY)
+            continue  # ➕ startet die Empfangsschleife neu
+
 
 # ==============================
 # MAIN
