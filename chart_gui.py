@@ -181,14 +181,14 @@ class ChartManager:
             "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
             "tp": ax.plot([], [], label="Take-Profit", color="green", linestyle=":", linewidth=1.1)[0],
             "be": ax.plot([], [], label="Break-Even", color="purple", linestyle="-.", linewidth=1.1)[0],
-            "ema_fast": ax.plot([], [], label="EMA Fast", color="cyan", linewidth=0.9, alpha=0.8)[0],
-            "ema_slow": ax.plot([], [], label="EMA Slow", color="magenta", linewidth=0.9, alpha=0.8)[0],
-            "hma_fast": ax.plot([], [], label="HMA Fast", color="deepskyblue", linewidth=0.9, alpha=0.8)[0],
-            "hma_slow": ax.plot([], [], label="HMA Slow", color="violet", linewidth=0.9, alpha=0.8)[0],
+            "ema_fast": ax.plot([], [], label="EMA Fast", color="cyan", linewidth=0.5, alpha=0.6)[0],
+            "ema_slow": ax.plot([], [], label="EMA Slow", color="magenta", linewidth=0.5, alpha=0.6)[0],
+            "hma_fast": ax.plot([], [], label="HMA Fast", color="deepskyblue", linewidth=0.5, alpha=0.6)[0],
+            "hma_slow": ax.plot([], [], label="HMA Slow", color="violet", linewidth=0.5, alpha=0.6)[0],
         }
 
         # Marker für Entry
-        lines["entry_marker"] = ax.plot([], [], "go", markersize=8, label="Entry")[0]
+        lines["entry_marker"] = ax.plot([], [], "go", markersize=4, label="Entry")[0]
 
         ax.legend(loc="upper left", fontsize="small")
         plt.show(block=False)

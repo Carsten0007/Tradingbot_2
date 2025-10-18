@@ -68,7 +68,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.0003 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -438,9 +438,9 @@ def on_candle_close(epic, bar):
     )
 
     # === 4️⃣ Marktseitig korrekten Entry-Preis bestimmen ===
-    if signal.startswith("TRADEBEREIT: BUY"):
+    if signal.startswith("BEREIT: BUY"):
         entry_price = close_ask   # BUY zum Ask-Preis
-    elif signal.startswith("TRADEBEREIT: SELL"):
+    elif signal.startswith("BEREIT: SELL"):
         entry_price = close_bid   # SELL zum Bid-Preis
     else:
         entry_price = mid_price   # kein Trade → Mid-Preis als Dummy
@@ -580,9 +580,9 @@ def evaluate_trend_signal(epic, closes, spread):
 
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
-        return f"TRADEBEREIT: BUY ✅ ({ma_type})"
+        return f"BEREIT: BUY ✅ ({ma_type})"
     elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
-        return f"TRADEBEREIT: SELL ⛔ ({ma_type})"
+        return f"BEREIT: SELL ⛔ ({ma_type})"
     else:
         return f"UNSICHER ⚪ ({ma_type})"
 
@@ -713,10 +713,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
         take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
 
-        # 🔒 Break-Even aktivieren
+        # Preis = Bid, Entry = Ask (bei BUY)
         if price >= entry * (1 + BREAK_EVEN_STOP):
-            be_stop = entry + spread * 0.9
-            if (stop is None or stop < entry):
+            be_stop = entry  # Stop direkt auf Entry = Break-Even
+            if (stop is None or stop < be_stop):
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
@@ -752,10 +752,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
         take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
-        # 🔒 Break-Even aktivieren
+        # Preis = Ask, Entry = Bid (bei SELL)
         if price <= entry * (1 - BREAK_EVEN_STOP):
-            be_stop = entry - spread * 0.9
-            if (stop is None or stop > entry):
+            be_stop = entry  # Stop direkt auf Entry = Break-Even
+            if (stop is None or stop > be_stop):
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
@@ -810,7 +810,7 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # ===========================
     # LONG-SIGNAL
     # ===========================
-    if signal.startswith("TRADEBEREIT: BUY"):
+    if signal.startswith("BEREIT: BUY"):
         if current == "BUY":
             print(Fore.GREEN + f"⚖️ [{epic}] Bereits LONG, nichts tun.")
         elif current == "SELL":
@@ -826,7 +826,7 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # ===========================
     # SHORT-SIGNAL
     # ===========================
-    elif signal.startswith("TRADEBEREIT: SELL"):
+    elif signal.startswith("BEREIT: SELL"):
         if current == "SELL":
             print(f"{Fore.RED}⚖️ [{epic}] Bereits SHORT, nichts tun. → {signal}{Style.RESET_ALL}")
         elif current == "BUY":
