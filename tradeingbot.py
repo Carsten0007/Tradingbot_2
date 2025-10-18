@@ -291,8 +291,21 @@ def close_position(CST, XSEC, epic, deal_id=None, retry=True):
 
 def on_candle_forming(epic, bar, ts_ms):
     # Wird bei jedem Tick innerhalb einer Kerze aufgerufen (noch nicht geschlossen).
-    closes = list(candle_history[epic]) + [bar["close"]]
-    spread = (bar["high"] - bar["low"]) / max(1, bar["ticks"])
+    # Verwende Mid-Preis für die laufende Candle (technische Analyse)
+    close_bid = bar.get("close_bid")
+    close_ask = bar.get("close_ask")
+    mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else bar.get("close")
+    closes = list(candle_history[epic]) + [mid_price]
+
+    # 🔧 Spread auf Basis echter Marktseiten (Ask–Bid)
+    high_ask = bar.get("high_ask")
+    low_bid = bar.get("low_bid")
+
+    if high_ask is not None and low_bid is not None:
+        spread = (high_ask - low_bid) / max(1, bar["ticks"])
+    else:
+        spread = 0.0
+
     trend = evaluate_trend_signal(epic, closes, spread)
 
     # Zeit konvertieren
@@ -305,12 +318,21 @@ def on_candle_forming(epic, bar, ts_ms):
         return
     last_printed_sec[epic] = sec_key
    
-    if bar["close"] > bar["open"]:
+    open_bid = bar.get("open_bid")
+    open_ask = bar.get("open_ask")
+    close_bid = bar.get("close_bid")
+    close_ask = bar.get("close_ask")
+
+    open_mid = (open_bid + open_ask) / 2 if open_bid and open_ask else None
+    close_mid = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+
+    if close_mid > open_mid:
         instant = "BUY ✅"
-    elif bar["close"] < bar["open"]:
+    elif close_mid < open_mid:
         instant = "SELL ⛔"
     else:
         instant = "NEUTRAL ⚪"
+
   
     # Offene Position abrufen für terminal ausgabe
     pos = open_positions.get(epic)
@@ -335,19 +357,45 @@ def on_candle_forming(epic, bar, ts_ms):
     ts_str = f"{ts:.2f}" if isinstance(ts, (int, float)) else "-"
     tp_str = f"{tp:.2f}" if isinstance(tp, (int, float)) else "-"
 
-    print(
-        f"[{epic}] {local_time} - "
-        f"O:{bar['open']:.2f} C:{bar['close']:.2f} (tks:{bar['ticks']}) → {instant} | "
-        f"Trend: {trend} "
-        f"- sl={sl_str} ts={ts_str} tp={tp_str}"
-    )
+    # 🧾 Konsistente Ausgabe mit Bid/Ask-Werten
+    open_bid = bar.get("open_bid")
+    open_ask = bar.get("open_ask")
+    close_bid = bar.get("close_bid")
+    close_ask = bar.get("close_ask")
 
-    
-    # Hook🧩 Chart aktualisieren
+    # Midpreise nur für visuelle Ausgabe berechnen
+    open_mid = (open_bid + open_ask) / 2 if open_bid and open_ask else None
+    close_mid = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+
+    if open_mid and close_mid:
+        print(
+            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
+            f"O:{open_mid:.2f} C:{close_mid:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
+            f"- sl={sl_str} ts={ts_str} tp={tp_str}"
+        )
+    else:
+        print(
+            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
+            f"O:{open_ask:.2f}/{open_bid:.2f}  C:{close_ask:.2f}/{close_bid:.2f} "
+            f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
+        )
+
+
+    # Hook🧩 Chart aktualisieren – nur gültige Marktseitendaten übergeben
     charts.update(
         epic,
         ts_ms,
-        bar,
+        {
+            "open_bid": bar.get("open_bid"),
+            "open_ask": bar.get("open_ask"),
+            "high_bid": bar.get("high_bid"),
+            "low_bid": bar.get("low_bid"),
+            "high_ask": bar.get("high_ask"),
+            "low_ask": bar.get("low_ask"),
+            "close_bid": bar.get("close_bid"),
+            "close_ask": bar.get("close_ask"),
+            "ticks": bar.get("ticks", 0)
+        },
         open_positions.get(epic, {}),
         ema_fast=None,
         ema_slow=None,
@@ -368,24 +416,24 @@ def on_candle_close(epic, bar):
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
     if close_bid is None or close_ask is None:
-        mid_price = bar.get("close")
+        mid_price = bar.get("close")  # Fallback, falls alte Struktur
     else:
         mid_price = (close_bid + close_ask) / 2.0
 
     candle_history[epic].append(mid_price)
 
     # === 2️⃣ Spread berechnen (reale Marktspanne) ===
-    high_ask = bar.get("high_ask", bar.get("high"))
-    low_bid = bar.get("low_bid", bar.get("low"))
-    spread = (high_ask - low_bid) / max(1, bar["ticks"])
+    high_ask = bar.get("high_ask") or bar.get("high")
+    low_bid = bar.get("low_bid") or bar.get("low")
+    spread = (high_ask - low_bid) / max(1, bar.get("ticks", 1)) if high_ask and low_bid else 0.0
 
-    # === 3️⃣ Handelssignal auswerten (weiterhin mit Mid-Preis-Historie) ===
+    # === 3️⃣ Handelssignal auswerten ===
     signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
 
     print(
         f"📊 Trend-Signal [{epic}] — "
-        f"O:{bar['open_ask']:.2f}/{bar['open_bid']:.2f} "
-        f"C:{bar['close_ask']:.2f}/{bar['close_bid']:.2f} "
+        f"O:{bar.get('open_ask', 0):.2f}/{bar.get('open_bid', 0):.2f} "
+        f"C:{bar.get('close_ask', 0):.2f}/{bar.get('close_bid', 0):.2f} "
         f"→ {signal}"
     )
 
@@ -407,6 +455,7 @@ def on_candle_close(epic, bar):
         direction = pos.get("direction") if isinstance(pos, dict) else None
         stop = pos.get("trailing_stop") if isinstance(pos, dict) else None
 
+        # Berechnung Stop/TP
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
             tp = entry * (1 + TAKE_PROFIT_PCT)
@@ -419,11 +468,20 @@ def on_candle_close(epic, bar):
         ts = stop
         be = pos.get("break_even_level") if isinstance(pos, dict) else None
 
+        # === 6️⃣ Chart-Update mit neuen Bid/Ask-Werten ===
         charts.update(
             epic,
             bar.get("timestamp") or int(time.time() * 1000),
             {
-                **bar,
+                "open_bid": bar.get("open_bid"),
+                "open_ask": bar.get("open_ask"),
+                "high_bid": bar.get("high_bid"),
+                "low_bid": bar.get("low_bid"),
+                "high_ask": bar.get("high_ask"),
+                "low_ask": bar.get("low_ask"),
+                "close_bid": bar.get("close_bid"),
+                "close_ask": bar.get("close_ask"),
+                "ticks": bar.get("ticks", 0),
                 "sl": sl,
                 "tp": tp,
                 "ts": ts,
@@ -692,7 +750,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     # === SHORT ===
     elif direction == "SELL":
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
-        take_profit_level = entry * (1 - TAKE_PROFIT_PCT - spread_pct)
+        take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
         # 🔒 Break-Even aktivieren
         if price <= entry * (1 - BREAK_EVEN_STOP):
@@ -835,7 +893,7 @@ async def run_candle_aggregator_per_instrument():
                     if now - last_ping > PING_INTERVAL:
                         try:
                             await ws.ping()
-                            print("📡 Ping gesendet")
+                            # print("📡 Ping gesendet")
                             last_ping = now
                         except Exception as e:
                             print("⚠️ Ping fehlgeschlagen:", e)
@@ -888,18 +946,23 @@ async def run_candle_aggregator_per_instrument():
                         #print(f"[DEBUG Chart-Hook] {epic} | bid={bid:.2f} ask={ask:.2f} ts={ts_ms}")
                         charts.update(
                             epic,
-                            ts_ms,  # ✅ API-basierter Timestamp, nicht time.time()
+                            ts_ms,
                             {
                                 "bid": bid,
                                 "ask": ask,
-                                "open": st["bar"]["open"],
-                                "high": st["bar"]["high"],
-                                "low": st["bar"]["low"],
-                                "close": mid_price,
+                                "open_bid": st["bar"]["open_bid"],
+                                "open_ask": st["bar"]["open_ask"],
+                                "high_bid": st["bar"]["high_bid"],
+                                "high_ask": st["bar"]["high_ask"],
+                                "low_bid": st["bar"]["low_bid"],
+                                "low_ask": st["bar"]["low_ask"],
+                                "close_bid": bid,
+                                "close_ask": ask,
                                 "ticks": st["bar"]["ticks"],
                             },
                             open_positions.get(epic, {})
-                        )
+)
+
 
                     # 🕒 Candle-Handling mit echten Marktseiten (Bid/Ask)
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
@@ -957,37 +1020,24 @@ async def run_candle_aggregator_per_instrument():
                         on_candle_forming(epic, st["bar"], ts_ms)
 
 
-                        # Schutz-Regeln prüfen (Stop-Loss, Trailing, BE, TP)
-                        pos = open_positions.get(epic)
-                        if isinstance(pos, dict):
-                            direction = pos.get("direction")
-                            
-                            bar = st.get("bar", {})
-                            bid = bar.get("bid")
-                            ask = bar.get("ask")
-                            close = bar.get("close")
+                        # 🛡️ Schutz-Regeln prüfen (Stop-Loss, Trailing, BE, TP)
+                        try:
+                            # Echtzeitwerte verwenden (nie aus bar, sondern Live-Tick)
+                            if bid is None or ask is None:
+                                print(f"⚠️ [{epic}] Kein gültiger Bid/Ask empfangen – Überspringe Schutzprüfung.")
+                                continue
 
-                            # 🧠 Robust gegen fehlende Bid/Ask – mit Logüberwachung
-                            use_fallback = False
-                            if direction == "BUY":
-                                if bid is not None:
-                                    price_for_check = bid
-                                else:
-                                    price_for_check = close
-                                    print(f"⚠️ [{epic}] Kein Bid/Ask verfügbar – nutze temporär Close ({direction})")
-                            elif direction == "SELL":
-                                if ask is not None:
-                                    price_for_check = ask
-                                else:
-                                    price_for_check = close
-                                    print(f"⚠️ [{epic}] Kein Bid/Ask verfügbar – nutze temporär Close ({direction})")
-                            else:
-                                price_for_check = close
-                        
-                        else:
-                            price_for_check = st["bar"]["close"]
+                            # Spread immer live berechnen
+                            spread = ask - bid if ask and bid else 0.0
 
-                        check_protection_rules(epic, bid, ask, spread, CST, XSEC)
+                            # 🔍 Debug-Log (optional)
+                            # print(f"[DEBUG] check_protection_rules({epic}) → bid={bid:.2f}, ask={ask:.2f}, spread={spread:.5f}")
+
+                            check_protection_rules(epic, bid, ask, spread, CST, XSEC)
+
+                        except Exception as e:
+                            print(f"⚠️ [{epic}] Fehler in check_protection_rules: {e}")
+
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
