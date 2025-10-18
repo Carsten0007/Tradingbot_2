@@ -827,6 +827,16 @@ async def run_candle_aggregator_per_instrument():
                             CST, XSEC = None, None
                         break
 
+                    # # 🧩 Debug: Zeige jede empfangene WebSocket-Nachricht (Rohdaten)
+                    # if "payload" in msg:
+                    #     try:
+                    #         epic = msg["payload"].get("epic", "N/A")
+                    #         print(f"\n📡 RAW MESSAGE [{epic}] → destination={msg.get('destination')}")
+                    #         print(json.dumps(msg["payload"], indent=2))
+                    #     except Exception as e:
+                    #         print("⚠️ Debug-Dump fehlgeschlagen:", e)
+
+                    
                     if msg.get("destination") != "quote":
                         continue
 
@@ -876,17 +886,37 @@ async def run_candle_aggregator_per_instrument():
                         )
                         on_candle_close(epic, bar)
                         st["minute"] = minute_key
-                        st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
+                        st["bar"] = {
+                            "open": px,
+                            "high": px,
+                            "low": px,
+                            "close": px,
+                            "ticks": 1,
+                            "bid": bid,
+                            "ask": ask
+                        }
+
                     else:
                         if st["minute"] is None:
                             st["minute"] = minute_key
-                            st["bar"] = {"open": px, "high": px, "low": px, "close": px, "ticks": 1}
+                            st["bar"] = {
+                                "open": px,
+                                "high": px,
+                                "low": px,
+                                "close": px,
+                                "ticks": 1,
+                                "bid": bid,
+                                "ask": ask
+                            }
+
                         else:
                             b = st["bar"]
                             b["high"] = max(b["high"], px)
                             b["low"] = min(b["low"], px)
                             b["close"] = px
                             b["ticks"] += 1
+                            b["bid"] = bid
+                            b["ask"] = ask
 
                         on_candle_forming(epic, st["bar"], ts_ms)
 
@@ -894,12 +924,29 @@ async def run_candle_aggregator_per_instrument():
                         pos = open_positions.get(epic)
                         if isinstance(pos, dict):
                             direction = pos.get("direction")
+                            
+                            bar = st.get("bar", {})
+                            bid = bar.get("bid")
+                            ask = bar.get("ask")
+                            close = bar.get("close")
+
+                            # 🧠 Robust gegen fehlende Bid/Ask – mit Logüberwachung
+                            use_fallback = False
                             if direction == "BUY":
-                                price_for_check = st["bar"]["bid"]  # Long → Schließen bei Bid
+                                if bid is not None:
+                                    price_for_check = bid
+                                else:
+                                    price_for_check = close
+                                    print(f"⚠️ [{epic}] Kein Bid/Ask verfügbar – nutze temporär Close ({direction})")
                             elif direction == "SELL":
-                                price_for_check = st["bar"]["ask"]  # Short → Schließen bei Ask
+                                if ask is not None:
+                                    price_for_check = ask
+                                else:
+                                    price_for_check = close
+                                    print(f"⚠️ [{epic}] Kein Bid/Ask verfügbar – nutze temporär Close ({direction})")
                             else:
-                                price_for_check = st["bar"]["close"]  # neutraler Fallback
+                                price_for_check = close
+                        
                         else:
                             price_for_check = st["bar"]["close"]
 
