@@ -734,7 +734,14 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
             print(Fore.YELLOW + f"🔒 [{epic}] Flip SELL→BUY ignoriert, SHORT bleibt offen.")
         elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Long eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), current_price)
+
+            # ✅ Marktseitig korrekter Entry: BUY zum Ask
+            try:
+                entry_px = st["bar"]["ask"] if "st" in locals() and st.get("bar") else current_price
+            except Exception:
+                entry_px = current_price  # Fallback
+
+            safe_open(CST, XSEC, epic, "BUY", calc_trade_size(CST, XSEC, epic), entry_px)
 
 
     # ===========================
@@ -748,7 +755,14 @@ def decide_and_trade(CST, XSEC, epic, signal, current_price):
             print(Fore.YELLOW + f"🔒 [{epic}] Flip BUY→SELL ignoriert, LONG bleibt offen.")
         elif current is None:
             print(f"{Fore.YELLOW}🚀 [{epic}] Short eröffnen{Style.RESET_ALL}")
-            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), current_price)
+
+            # ✅ Marktseitig korrekter Entry: SELL zum Bid
+            try:
+                entry_px = st["bar"]["bid"] if "st" in locals() and st.get("bar") else current_price
+            except Exception:
+                entry_px = current_price  # Fallback
+
+            safe_open(CST, XSEC, epic, "SELL", calc_trade_size(CST, XSEC, epic), entry_px)
 
 
     # ===========================
