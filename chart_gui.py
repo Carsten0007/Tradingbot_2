@@ -23,8 +23,9 @@ class ChartManager:
     def update(
         self, epic, ts_ms, bar, pos,
         ema_fast=None, ema_slow=None, hma_fast=None, hma_slow=None,
-        entry=None, sl=None, tp=None, ts=None
-):
+        entry=None, sl=None, tp=None, ts=None, trend=None
+    ):
+
         with self.lock:
             if pos is None:
                 pos = {}
@@ -165,16 +166,47 @@ class ChartManager:
                 else:
                     setattr(self, f"last_pnl_{epic}", pnl)
 
+                # Positionsgröße berücksichtigen
+                size = pos.get("size") or 1.0
+                pnl_total = 0.0
+                if pnl is not None:
+                    pnl_total = pnl * size
+
                 # Titeltext aufbauen
                 if direction == "BUY":
                     status_title = f"LONG Trade offen"
                 elif direction == "SELL":
                     status_title = f"SHORT Trade offen"
 
-                if pnl is not None:
-                    status_title += f" | Δ = {pnl:+.2f} €"
-                else:
-                    status_title += " | Δ = –.– €"
+                # Anzeige: Gesamt-P&L (mit Positionsgröße)
+                status_title += f" | Δ = {pnl_total:+.2f}"
+
+            else:
+                status_title = "Aktuell kein Trade"
+
+            # -------------------------------------------------------
+            #   Trend-Pfeil bestimmen (stabil, kein Flackern)
+            # -------------------------------------------------------
+            arrow = None
+            if isinstance(trend, str):
+                t = trend.upper()
+                if "BUY" in t:
+                    arrow = "↗"
+                elif "SELL" in t:
+                    arrow = "↘"
+                elif "UNSICHER" in t or "HOLD" in t:
+                    arrow = "→"
+
+            # Letzten gültigen Trend-Pfeil merken
+            if arrow is None:
+                arrow = getattr(self, f"last_arrow_{epic}", None)
+            else:
+                setattr(self, f"last_arrow_{epic}", arrow)
+
+            # Pfeil anzeigen (auch wenn kein Trade offen)
+            if arrow:
+                status_title += f"  {arrow}"
+
 
             # -------------------------------------------------------
             #   Nur aktualisieren, wenn sich der Titeltext ändert

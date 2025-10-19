@@ -55,8 +55,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 7 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 9 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 21 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -68,8 +68,8 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_TRIGGER_THRESHOLD = 0.00015   # 0,03 % über Entry → ab hier aktivieren
-BREAK_EVEN_STOP_BUFFER       = 0.00007   # 0,01 % Puffer oberhalb/unterhalb Entry
+BREAK_EVEN_TRIGGER_THRESHOLD = 0.0003   # 0,03 % über Entry → ab hier aktivieren
+BREAK_EVEN_STOP_BUFFER       = 0.0001   # 0,01 % Puffer oberhalb/unterhalb Entry
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
 
@@ -383,31 +383,23 @@ def on_candle_forming(epic, bar, ts_ms):
 
     # Hook🧩 Chart aktualisieren – nur gültige Marktseitendaten übergeben
     charts.update(
-        epic,
-        ts_ms,
-        {
-            "open_bid": bar.get("open_bid"),
-            "open_ask": bar.get("open_ask"),
-            "high_bid": bar.get("high_bid"),
-            "low_bid": bar.get("low_bid"),
-            "high_ask": bar.get("high_ask"),
-            "low_ask": bar.get("low_ask"),
-            "close_bid": bar.get("close_bid"),
-            "close_ask": bar.get("close_ask"),
-            "ticks": bar.get("ticks", 0)
-        },
-        open_positions.get(epic, {}),
-        ema_fast=None,
-        ema_slow=None,
-        hma_fast=None,
-        hma_slow=None,
-        entry=entry,
-        sl=sl,
-        tp=tp,
-        ts=ts
-    )
-
-
+    epic,
+    ts_ms,
+    {
+        "open_bid": bar.get("open_bid"),
+        "open_ask": bar.get("open_ask"),
+        "high_bid": bar.get("high_bid"),
+        "low_bid": bar.get("low_bid"),
+        "high_ask": bar.get("high_ask"),
+        "low_ask": bar.get("low_ask"),
+        "close_bid": bar.get("close_bid"),
+        "close_ask": bar.get("close_ask"),
+        "ticks": bar.get("ticks", 0)
+    },
+    open_positions.get(epic, {}),
+    entry=entry, sl=sl, tp=tp, ts=ts,
+    trend=trend   # 🧭 Trend-String mitgeben für Pfeil im Titel
+)
 
 def on_candle_close(epic, bar):
     # Wird bei Abschluss jeder 1m-Kerze aufgerufen.
