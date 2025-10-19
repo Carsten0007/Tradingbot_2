@@ -167,7 +167,7 @@ class ChartManager:
                     setattr(self, f"last_pnl_{epic}", pnl)
 
                 # Positionsgröße berücksichtigen
-                size = pos.get("size") or 1.0
+                size = 0.3 # pos.get("size") or 1.0 # testweise 0,3, 19.10.2025
                 pnl_total = 0.0
                 if pnl is not None:
                     pnl_total = pnl * size

@@ -55,8 +55,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -65,8 +65,8 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
-TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+STOP_LOSS_PCT      = 0.0020   # fester Stop-Loss
+TRAILING_STOP_PCT  = 0.0010   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_TRIGGER_THRESHOLD = 0.0003   # 0,03 % über Entry → ab hier aktivieren
 BREAK_EVEN_STOP_BUFFER       = 0.0001   # 0,01 % Puffer oberhalb/unterhalb Entry
@@ -346,10 +346,10 @@ def on_candle_forming(epic, bar, ts_ms):
 
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            tp = entry * (1 + TAKE_PROFIT_PCT)
+            # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            tp = entry * (1 - TAKE_PROFIT_PCT)
+            # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
 
         ts = stop  # aktueller Trailing-Stop (falls gesetzt)
 
@@ -450,10 +450,10 @@ def on_candle_close(epic, bar):
         # Berechnung Stop/TP
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            tp = entry * (1 + TAKE_PROFIT_PCT)
+            # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            tp = entry * (1 - TAKE_PROFIT_PCT)
+            # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         else:
             sl = tp = None
 
