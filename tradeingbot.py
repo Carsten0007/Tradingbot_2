@@ -346,10 +346,10 @@ def on_candle_forming(epic, bar, ts_ms):
 
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            tp = None # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            tp = None # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
 
         ts = stop  # aktueller Trailing-Stop (falls gesetzt)
 
@@ -450,10 +450,10 @@ def on_candle_close(epic, bar):
         # Berechnung Stop/TP
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            tp = None # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            tp = None # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         else:
             sl = tp = None
 
