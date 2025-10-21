@@ -67,7 +67,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 STOP_LOSS_PCT      = 0.0020   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0010   # Trailing Stop
-TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT = 0.0100  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_TRIGGER_THRESHOLD = 0.0003   # 0,03 % über Entry → ab hier aktivieren
 BREAK_EVEN_STOP_BUFFER       = 0.0001   # 0,01 % Puffer oberhalb/unterhalb Entry
 # funzt ~
@@ -346,10 +346,12 @@ def on_candle_forming(epic, bar, ts_ms):
 
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            tp = None # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            # tp = None
+            tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            tp = None # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            # tp = None
+            tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
 
         ts = stop  # aktueller Trailing-Stop (falls gesetzt)
 
@@ -450,10 +452,12 @@ def on_candle_close(epic, bar):
         # Berechnung Stop/TP
         if entry and direction == "BUY":
             sl = entry * (1 - STOP_LOSS_PCT)
-            tp = None # tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            # tp = None
+            tp = entry * (1 + TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         elif entry and direction == "SELL":
             sl = entry * (1 + STOP_LOSS_PCT)
-            tp = None # tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
+            # tp = None
+            tp = entry * (1 - TAKE_PROFIT_PCT) # testweise kommentiert 19.10.2025
         else:
             sl = tp = None
 
