@@ -880,6 +880,17 @@ async def run_candle_aggregator_per_instrument():
                 await ws.send(json.dumps(subscribe))
                 print("✅ Subscribed:", INSTRUMENTS)
 
+                # 🧭 Nach Reconnect: offene Positionen mit Server abgleichen
+                try:
+                    positions = get_positions(CST, XSEC)
+                    active_epics = [p["market"]["epic"] for p in positions if p.get("position")]
+                    for epic in list(open_positions.keys()):
+                        if epic not in active_epics:
+                            print(f"⚠️ {epic}: laut Server keine offene Position mehr → lokal schließen")
+                            open_positions[epic] = None
+                except Exception as e:
+                    print(f"⚠️ Positionsabgleich nach Reconnect fehlgeschlagen: {e}")
+
                 last_ping = time.time()
 
                 while True:
@@ -915,7 +926,6 @@ async def run_candle_aggregator_per_instrument():
                     #         print(json.dumps(msg["payload"], indent=2))
                     #     except Exception as e:
                     #         print("⚠️ Debug-Dump fehlgeschlagen:", e)
-
                     
                     if msg.get("destination") != "quote":
                         continue
@@ -958,7 +968,6 @@ async def run_candle_aggregator_per_instrument():
                             },
                             open_positions.get(epic, {})
 )
-
 
                     # 🕒 Candle-Handling mit echten Marktseiten (Bid/Ask)
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
@@ -1015,7 +1024,6 @@ async def run_candle_aggregator_per_instrument():
                         # Während der Minute Trend- und Chartdaten aktualisieren
                         on_candle_forming(epic, st["bar"], ts_ms)
 
-
                         # 🛡️ Schutz-Regeln prüfen (Stop-Loss, Trailing, BE, TP)
                         try:
                             # Echtzeitwerte verwenden (nie aus bar, sondern Live-Tick)
@@ -1033,7 +1041,6 @@ async def run_candle_aggregator_per_instrument():
 
                         except Exception as e:
                             print(f"⚠️ [{epic}] Fehler in check_protection_rules: {e}")
-
 
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
