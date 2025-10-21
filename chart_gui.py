@@ -146,7 +146,7 @@ class ChartManager:
             # -------------------------------------------------------
             status_title = "Aktuell kein Trade"
 
-            if pos and isinstance(pos, dict):
+            if pos and isinstance(pos, dict) and pos.get("entry_price"):
                 direction = pos.get("direction")
                 entry_price = pos.get("entry_price")
                 bid = bar.get("bid")
