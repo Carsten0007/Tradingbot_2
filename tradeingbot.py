@@ -65,11 +65,11 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.0020   # fester Stop-Loss
-TRAILING_STOP_PCT  = 0.0020   # Trailing Stop
-TAKE_PROFIT_PCT = 0.0200  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_TRIGGER_THRESHOLD = 0.0003   # 0,03 % über Entry → ab hier aktivieren
-BREAK_EVEN_STOP_BUFFER       = 0.0001   # 0,01 % Puffer oberhalb/unterhalb Entry
+STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
 
@@ -710,14 +710,14 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
         take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
 
-        # Preis = Bid, Entry = Ask
-        if price >= entry * (1 + BREAK_EVEN_TRIGGER_THRESHOLD):
-            be_stop = entry * (1 + BREAK_EVEN_STOP_BUFFER)
+        # Preis = Bid, Entry = Ask (bei BUY)
+        if price >= entry * (1 + BREAK_EVEN_STOP):
+            be_stop = entry  # Stop direkt auf Entry = Break-Even
             if (stop is None or stop < be_stop):
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
-                print(f"🔒 [{epic}] Break-Even aktiviert bei {be_stop:.2f} (Trigger={BREAK_EVEN_TRIGGER_THRESHOLD}, Buffer={BREAK_EVEN_STOP_BUFFER})")
+                print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
 
         # 🔧 Trailing-Stop nachziehen
         if price > entry:
@@ -749,14 +749,14 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
         take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
 
-        # Preis = Ask, Entry = Bid
-        if price <= entry * (1 - BREAK_EVEN_TRIGGER_THRESHOLD):
-            be_stop = entry * (1 - BREAK_EVEN_STOP_BUFFER)
+        # Preis = Ask, Entry = Bid (bei SELL)
+        if price <= entry * (1 - BREAK_EVEN_STOP):
+            be_stop = entry  # Stop direkt auf Entry = Break-Even
             if (stop is None or stop > be_stop):
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
-                print(f"🔒 [{epic}] Break-Even aktiviert bei {be_stop:.2f} (Trigger={BREAK_EVEN_TRIGGER_THRESHOLD}, Buffer={BREAK_EVEN_STOP_BUFFER})")
+                print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
 
         # 🔧 Trailing-Stop nachziehen
         if price < entry:

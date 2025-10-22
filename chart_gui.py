@@ -141,99 +141,6 @@ class ChartManager:
             # Status speichern
             self.last_trade_state[epic] = trade_open
 
-            # -------------------------------------------------------
-            #   Diagrammtitel dynamisch anpassen (Trade-Zustand)
-            # -------------------------------------------------------
-            status_title = "Aktuell kein Trade"
-
-            if pos and isinstance(pos, dict) and pos.get("entry_price"):
-                direction = pos.get("direction")
-                entry_price = pos.get("entry_price")
-                bid = bar.get("bid")
-                ask = bar.get("ask")
-                price = bid if direction == "BUY" else ask
-
-                pnl = None
-                if price and entry_price:
-                    diff = price - entry_price
-                    if direction == "SELL":
-                        diff = entry_price - price
-                    pnl = diff
-
-                # Letzten gültigen PNL speichern, falls dieser None ist
-                if pnl is None:
-                    pnl = getattr(self, f"last_pnl_{epic}", None)
-                else:
-                    setattr(self, f"last_pnl_{epic}", pnl)
-
-                # Positionsgröße berücksichtigen
-                size = 0.3 # pos.get("size") or 1.0 # testweise 0,3, 19.10.2025
-                pnl_total = 0.0
-                if pnl is not None:
-                    pnl_total = pnl * size
-
-                # Titeltext aufbauen
-                if direction == "BUY":
-                    status_title = f"LONG Trade offen"
-                elif direction == "SELL":
-                    status_title = f"SHORT Trade offen"
-
-                # Anzeige: Gesamt-P&L (mit Positionsgröße)
-                status_title += f" | Δ = {pnl_total:+.2f}"
-
-            else:
-                status_title = "Aktuell kein Trade"
-
-            # -------------------------------------------------------
-            #   Trend-Pfeil bestimmen (stabil, kein Flackern)
-            # -------------------------------------------------------
-            arrow = None
-            if isinstance(trend, str):
-                t = trend.upper()
-                if "BUY" in t:
-                    arrow = "↗"
-                elif "SELL" in t:
-                    arrow = "↘"
-                elif "UNSICHER" in t or "HOLD" in t:
-                    arrow = "→"
-
-            # Letzten gültigen Trend-Pfeil merken
-            if arrow is None:
-                arrow = getattr(self, f"last_arrow_{epic}", None)
-            else:
-                setattr(self, f"last_arrow_{epic}", arrow)
-
-            # Pfeil anzeigen (auch wenn kein Trade offen)
-            if arrow:
-                status_title += f"  {arrow}"
-
-
-            # -------------------------------------------------------
-            #   Nur aktualisieren, wenn sich der Titeltext ändert
-            # -------------------------------------------------------
-            try:
-                ax = self.lines[epic]["ax"]
-                old_title = ax.get_title()
-                if old_title != status_title:
-                    ax.set_title(status_title)
-            except Exception:
-                pass
-
-            # -------------------------------------------------------
-            #   Titel einfärben nach P&L
-            # -------------------------------------------------------
-            try:
-                color = "black"  # Standard
-                if pnl is not None:
-                    if pnl > 0:
-                        color = "green"
-                    elif pnl < 0:
-                        color = "red"
-
-                self.lines[epic]["ax"].title.set_color(color)
-            except Exception:
-                pass
-
 
             # 🔁 Refresh
             self._refresh_chart(epic)
@@ -251,13 +158,7 @@ class ChartManager:
 
         fig, ax = plt.subplots()
         fig.canvas.manager.window.attributes('-topmost', 0)
-
-        # Fenstertitel
-        try:
-            fig.canvas.manager.set_window_title(f"Live Chart – {epic}")
-        except Exception:
-            pass  # kompatibel mit verschiedenen Backends
-
+        ax.set_title(f"Live Chart – {epic}")
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
@@ -274,24 +175,18 @@ class ChartManager:
 
         # Linien vorbereiten – deutlicher & konsistenter
         lines = {
-                # Marktpreise
-                "bid": ax.plot([], [], label="Bid", color="lightblue", linewidth=0.8, alpha=0.8)[0],
-                "ask": ax.plot([], [], label="Ask", color="lightcoral", linewidth=0.8, alpha=0.8)[0],
-
-                # Handelsebenen
-                "entry": ax.plot([], [], label="Entry", color="gray", linestyle="--")[0],
-                "sl": ax.plot([], [], label="Stop-Loss", color="red", linestyle=":", linewidth=1.1)[0],
-                "ts": ax.plot([], [], label="Trailing", color="orangered", linestyle="--", linewidth=1.1)[0],  # etwas kräftiger
-                "tp": ax.plot([], [], label="Take-Profit", color="limegreen", linestyle=":", linewidth=1.1)[0],
-                "be": ax.plot([], [], label="Break-Even", color="mediumorchid", linestyle="-.", linewidth=1.1)[0],
-
-                # Indikatoren – gruppiert nach Typ
-                "ema_fast": ax.plot([], [], label="EMA Fast", color="dimgray", linewidth=0.8, alpha=0.7)[0],      # dunkelgrau
-                "ema_slow": ax.plot([], [], label="EMA Slow", color="lightgray", linewidth=0.8, alpha=0.7)[0],    # hellgrau
-                "hma_fast": ax.plot([], [], label="HMA Fast", color="darkgreen", linewidth=0.8, alpha=0.7)[0],    # dunkelgrün
-                "hma_slow": ax.plot([], [], label="HMA Slow", color="limegreen", linewidth=0.8, alpha=0.7)[0],    # hellgrün
+            "bid": ax.plot([], [], label="Bid", color="lightblue", linewidth=0.8, alpha=0.8)[0],
+            "ask": ax.plot([], [], label="Ask", color="lightcoral", linewidth=0.8, alpha=0.8)[0],
+            "entry": ax.plot([], [], label="Entry", color="gray", linestyle="--")[0],
+            "sl": ax.plot([], [], label="Stop-Loss", color="red", linestyle=":", linewidth=1.1)[0],
+            "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
+            "tp": ax.plot([], [], label="Take-Profit", color="green", linestyle=":", linewidth=1.1)[0],
+            "be": ax.plot([], [], label="Break-Even", color="purple", linestyle="-.", linewidth=1.1)[0],
+            "ema_fast": ax.plot([], [], label="EMA Fast", color="cyan", linewidth=0.5, alpha=0.6)[0],
+            "ema_slow": ax.plot([], [], label="EMA Slow", color="magenta", linewidth=0.5, alpha=0.6)[0],
+            "hma_fast": ax.plot([], [], label="HMA Fast", color="deepskyblue", linewidth=0.5, alpha=0.6)[0],
+            "hma_slow": ax.plot([], [], label="HMA Slow", color="violet", linewidth=0.5, alpha=0.6)[0],
         }
-
 
         # Marker für Entry
         lines["entry_marker"] = ax.plot([], [], "go", markersize=4, label="Entry")[0]
