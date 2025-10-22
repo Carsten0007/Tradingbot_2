@@ -410,13 +410,17 @@ def on_candle_forming(epic, bar, ts_ms):
 def on_candle_close(epic, bar):
     # Wird bei Abschluss jeder 1m-Kerze aufgerufen.
 
-    # === 1️⃣ Mid-Preis nur für technische Indikatoren (EMA/HMA) ===
+    # === 1️⃣ Mid-Preis nur für technische Indikatoren (EMA/HMA)
+    #       Hinweis: Wird ausschließlich für gleitende Durchschnitte verwendet,
+    #       nicht für Handetake_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))sentscheidungen.
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
-    if close_bid is None or close_ask is None:
-        mid_price = bar.get("close")  # Fallback, falls alte Struktur
-    else:
+    # Mid-Preis aus Bid / Ask (keine Fallbacks mehr erforderlich)
+    if close_bid is not None and close_ask is not None:
         mid_price = (close_bid + close_ask) / 2.0
+    else:
+        mid_price = None
+
 
     candle_history[epic].append(mid_price)
 
@@ -711,7 +715,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     # === LONG ===
     if direction == "BUY":
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
-        take_profit_level = entry * (1 + TAKE_PROFIT_PCT + spread_pct)
+        take_profit_level = entry * (1 + TAKE_PROFIT_PCT)
 
         # Preis = Bid, Entry = Ask (bei BUY)
         if price >= entry * (1 + BREAK_EVEN_STOP):
@@ -750,7 +754,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     # === SHORT ===
     elif direction == "SELL":
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
-        take_profit_level = entry * (1 - (TAKE_PROFIT_PCT + spread_pct))
+        take_profit_level = entry * (1 - TAKE_PROFIT_PCT )
 
         # Preis = Ask, Entry = Bid (bei SELL)
         if price <= entry * (1 - BREAK_EVEN_STOP):
