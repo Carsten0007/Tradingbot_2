@@ -583,6 +583,38 @@ def evaluate_trend_signal(epic, closes, spread):
     #     f"Close={last_close:.2f}"
     # )
 
+    # ======================================================
+    #  🧭 ENTRY-FILTER: Vermeide späte oder schwache Signale
+    # ======================================================
+
+    # Preis-vs-MA-Filter (verhindert Entries am Wellenkamm)
+    distance = abs(last_close - ma_fast)
+    max_distance = spread * 1.5  # Faktor anpassbar (1.0–2.0 typisch)
+
+    if distance > max_distance:
+        print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
+              f"(dist={distance:.5f}) → kein Entry")
+        return f"HOLD (überdehnt, {ma_type})"
+
+    # Momentum-Filter (prüft Beschleunigung)
+    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor
+    # → Annäherung über Differenz zweier aufeinanderfolgender Closes
+    momentum_now = last_close - prev_close
+    momentum_prev = prev_close - closes[-3]
+
+    if ma_fast > ma_slow and momentum_now < momentum_prev:
+        print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
+        return f"HOLD (Momentum schwach, {ma_type})"
+
+    if ma_fast < ma_slow and momentum_now > momentum_prev:
+        print(f"⚠️ [{epic}] SHORT-Momentum schwächer → kein SELL")
+        return f"HOLD (Momentum schwach, {ma_type})"
+
+    # ======================================================
+    #  🧭 ENTRY-FILTER ENDE
+    # ======================================================
+
+
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
         return f"BEREIT: BUY ✅ ({ma_type})"
