@@ -55,8 +55,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 7 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 
@@ -170,7 +170,7 @@ def get_positions(CST, XSEC, retry=True):
         "Accept": "application/json"
     }
     r = requests.get(url, headers=headers)
-
+    print(f"🧩 [DEBUG REST-Check] HTTP {r.status_code} → {r.text[:200]}") # debug 22.10.2025
     if r.status_code == 401 and retry:
         print("🔑 Session abgelaufen → erneuter Login (get_positions) ...")
         new_CST, new_XSEC = capital_login()
@@ -218,6 +218,7 @@ def open_position(CST, XSEC, epic, direction, size, entry_price, retry=True):
         raise RuntimeError("force_reconnect")
 
     print("📩 Order-Response:", r.status_code, r.text)
+    print(f"🧩 [DEBUG] Vor Confirm: open_positions[{epic}] = {open_positions.get(epic)}") # debug 22.10.2025
 
     if r.status_code == 200:
         try:
@@ -882,7 +883,9 @@ async def run_candle_aggregator_per_instrument():
 
                 # 🧭 Nach Reconnect: offene Positionen mit Server abgleichen
                 try:
+                    print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}") # debug 22.10.2025
                     positions = get_positions(CST, XSEC)
+                    print(f"🧩 [DEBUG REST-Check] get_positions() Rückgabe: {type(positions)} / Länge: {len(positions) if positions else 0}") # debug 22.10.2025
                     active_epics = [p["market"]["epic"] for p in positions if p.get("position")]
                     for epic in list(open_positions.keys()):
                         if epic not in active_epics:
