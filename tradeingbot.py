@@ -295,7 +295,7 @@ def on_candle_forming(epic, bar, ts_ms):
     # Verwende Mid-Preis für die laufende Candle (technische Analyse)
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
-    mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else bar.get("close")
+    mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else None
     closes = list(candle_history[epic]) + [mid_price]
 
     # 🔧 Spread auf Basis echter Marktseiten (Ask–Bid)
@@ -324,12 +324,15 @@ def on_candle_forming(epic, bar, ts_ms):
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
 
-    open_mid = (open_bid + open_ask) / 2 if open_bid and open_ask else None
-    close_mid = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+    mid_open = (open_bid + open_ask) / 2 if open_bid and open_ask else None
+    mid_close = (close_bid + close_ask) / 2 if close_bid and close_ask else None
 
-    if close_mid > open_mid:
+    # Hinweis:
+    # Diese BUY/SELL-Anzeige basiert auf Mid-Preisen (Durchschnitt aus Bid/Ask)
+    # Sie dient nur der Visualisierung / Trendanzeige, nicht der Handelsentscheidung.
+    if mid_close > mid_open:
         instant = "BUY ✅"
-    elif close_mid < open_mid:
+    elif mid_close < mid_open:
         instant = "SELL ⛔"
     else:
         instant = "NEUTRAL ⚪"
@@ -367,13 +370,13 @@ def on_candle_forming(epic, bar, ts_ms):
     close_ask = bar.get("close_ask")
 
     # Midpreise nur für visuelle Ausgabe berechnen
-    open_mid = (open_bid + open_ask) / 2 if open_bid and open_ask else None
-    close_mid = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+    mid_open = (open_bid + open_ask) / 2 if open_bid and open_ask else None
+    mid_close = (close_bid + close_ask) / 2 if close_bid and close_ask else None
 
-    if open_mid and close_mid:
+    if mid_open and mid_close:
         print(
             f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
-            f"O:{open_mid:.2f} C:{close_mid:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
+            f"O:{mid_open:.2f} C:{mid_close:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
             f"- sl={sl_str} ts={ts_str} tp={tp_str}"
         )
     else:
