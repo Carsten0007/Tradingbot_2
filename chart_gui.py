@@ -34,7 +34,8 @@ class ChartManager:
                 self._init_chart(epic)
 
             dq = self.data[epic]
-
+            fig = self.lines[epic]["fig"]
+            ax = fig.axes[0]
             # Einheitliche lokale Zeit (identisch zu tradeingbot)
             try:
                 from tradeingbot import to_local_dt
@@ -141,6 +142,22 @@ class ChartManager:
             # Status speichern
             self.last_trade_state[epic] = trade_open
 
+            # -------------------------------------------------------
+            #   Diagrammtitel dynamisch anpassen (Trade-Zustand)
+            # -------------------------------------------------------
+            if pos and isinstance(pos, dict):
+                direction = pos.get("direction")
+                if direction == "BUY":
+                    title = f"{epic} — LONG Trade offen"
+                elif direction == "SELL":
+                    title = f"{epic} — SHORT Trade offen"
+                else:
+                    title = f"{epic} — aktuell kein Trade"
+            else:
+                title = f"{epic} — aktuell kein Trade"
+
+            ax.set_title(title)
+
 
             # 🔁 Refresh
             self._refresh_chart(epic)
@@ -158,6 +175,7 @@ class ChartManager:
 
         fig, ax = plt.subplots()
         fig.canvas.manager.window.attributes('-topmost', 0)
+        fig.canvas.manager.set_window_title(f"{epic} – Live Chart")
         ax.set_title(f"Live Chart – {epic}")
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
