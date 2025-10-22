@@ -1045,6 +1045,11 @@ async def run_candle_aggregator_per_instrument():
                         except Exception as e:
                             print(f"⚠️ [{epic}] Fehler in check_protection_rules: {e}")
 
+                # 🧠 Sauberer Abbruch per STRG + C
+        except KeyboardInterrupt:
+            print("🛑 Abbruch durch Benutzer (CTRL+C)")
+            break
+
         except Exception as e:
             print("❌ Verbindungsfehler:", e)
 
@@ -1061,9 +1066,10 @@ async def run_candle_aggregator_per_instrument():
 
             # 🔁 Sicherstellen, dass beim nächsten Loop wirklich neu verbunden wird
             ws = None
-            print("⏳ 5s warten, dann neuer Versuch ...")
+            print("⏳ 5 s warten, dann neuer Versuch ...")
             await asyncio.sleep(RECONNECT_DELAY)
             continue  # ➕ startet die Empfangsschleife neu
+
 
 
 # ==============================

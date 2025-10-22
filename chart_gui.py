@@ -143,20 +143,25 @@ class ChartManager:
             self.last_trade_state[epic] = trade_open
 
             # -------------------------------------------------------
-            #   Diagrammtitel dynamisch anpassen (Trade-Zustand)
+            #   Diagrammtitel dynamisch anpassen (Trade-Zustand, farbig)
             # -------------------------------------------------------
             if pos and isinstance(pos, dict):
                 direction = pos.get("direction")
                 if direction == "BUY":
-                    title = f"{epic} — LONG Trade offen"
+                    title = "LONG Trade offen"
+                    color = "green"
                 elif direction == "SELL":
-                    title = f"{epic} — SHORT Trade offen"
+                    title = "SHORT Trade offen"
+                    color = "red"
                 else:
-                    title = f"{epic} — aktuell kein Trade"
+                    title = "Aktuell kein Trade"
+                    color = "black"
             else:
-                title = f"{epic} — aktuell kein Trade"
+                title = "Aktuell kein Trade"
+                color = "black"
 
-            ax.set_title(title)
+            ax.set_title(title, color=color)
+
 
 
             # 🔁 Refresh
