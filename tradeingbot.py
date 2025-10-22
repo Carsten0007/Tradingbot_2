@@ -68,7 +68,8 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
 TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -717,14 +718,16 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
         take_profit_level = entry * (1 + TAKE_PROFIT_PCT)
 
-        # Preis = Bid, Entry = Ask (bei BUY)
-        if price >= entry * (1 + BREAK_EVEN_STOP):
-            be_stop = entry  # Stop direkt auf Entry = Break-Even
-            if (stop is None or stop < be_stop):
+        # 🧭 Break-Even-Logik (mit Buffer)
+        # Wird erst aktiviert, wenn Bid über Entry × (1 + BREAK_EVEN_STOP_PCT + BREAK_EVEN_BUFFER_PCT) liegt.
+        if price >= entry * (1 + BREAK_EVEN_STOP_PCT + BREAK_EVEN_BUFFER_PCT):
+            be_stop = entry * (1 + BREAK_EVEN_STOP_PCT)
+            if stop is None or stop < be_stop:
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
-                print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
+                print(f"🔒 [{epic}] Break-Even aktiviert bei {price:.2f} auf {be_stop:.2f}")
+
 
         # 🔧 Trailing-Stop nachziehen
         if price > entry:
@@ -756,14 +759,16 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         stop_loss_level = entry * (1 + STOP_LOSS_PCT)
         take_profit_level = entry * (1 - TAKE_PROFIT_PCT )
 
-        # Preis = Ask, Entry = Bid (bei SELL)
-        if price <= entry * (1 - BREAK_EVEN_STOP):
-            be_stop = entry  # Stop direkt auf Entry = Break-Even
-            if (stop is None or stop > be_stop):
+        # 🧭 Break-Even-Logik (mit Buffer)
+        # Wird erst aktiviert, wenn Ask unter Entry × (1 − (BREAK_EVEN_STOP_PCT + BREAK_EVEN_BUFFER_PCT)) fällt.
+        if price <= entry * (1 - (BREAK_EVEN_STOP_PCT + BREAK_EVEN_BUFFER_PCT)):
+            be_stop = entry * (1 - BREAK_EVEN_STOP_PCT)
+            if stop is None or stop > be_stop:
                 pos["trailing_stop"] = be_stop
                 pos["break_even_active"] = True
                 pos["break_even_level"] = be_stop
-                print(f"🔒 [{epic}] Break-Even Stop aktiviert bei {be_stop:.2f}")
+                print(f"🔒 [{epic}] Break-Even aktiviert bei {price:.2f} auf {be_stop:.2f}")
+
 
         # 🔧 Trailing-Stop nachziehen
         if price < entry:

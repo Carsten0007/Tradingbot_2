@@ -288,10 +288,10 @@ class ChartManager:
         ax = lines["ax"]
 
         if bids or asks:
-            # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
-            max_time = times[-1]
-            min_time = max_time - dt.timedelta(seconds=self.window)
-            ax.set_xlim(min_time, max_time)
+            # # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
+            # max_time = times[-1]
+            # min_time = max_time - dt.timedelta(seconds=self.window)
+            # ax.set_xlim(min_time, max_time)
 
             # 2️⃣ Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
             values = []
@@ -323,7 +323,11 @@ class ChartManager:
                 if not any(d.get("direction") for d in dq):
                     lines["entry"].set_data([], [])
 
-        
+        # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
+        max_time = times[-1]
+        min_time = max_time - dt.timedelta(seconds=self.window)
+        ax.set_xlim(min_time, max_time)
+
         # 🔁 Refresh
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()
