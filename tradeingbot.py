@@ -589,7 +589,7 @@ def evaluate_trend_signal(epic, closes, spread):
 
     # Preis-vs-MA-Filter (verhindert Entries am Wellenkamm)
     distance = abs(last_close - ma_fast)
-    max_distance = spread * 3.0  # Faktor anpassbar (1.0–2.0 typisch)
+    max_distance = spread * 8.0  # Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
@@ -605,11 +605,11 @@ def evaluate_trend_signal(epic, closes, spread):
     momentum_now = last_close - prev_close
     momentum_prev = prev_close - closes[-3]
 
-    if ma_fast > ma_slow and momentum_now < momentum_prev * 0.5:
+    if ma_fast > ma_slow and momentum_now < momentum_prev * 0.1:
         print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
-    if ma_fast < ma_slow and momentum_now > momentum_prev * 0.5:
+    if ma_fast < ma_slow and momentum_now > momentum_prev * 0.1:
         print(f"⚠️ [{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
@@ -933,16 +933,31 @@ async def run_candle_aggregator_per_instrument():
 
                 # 🧭 Nach Reconnect: offene Positionen mit Server abgleichen
                 try:
-                    print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}") # debug 22.10.2025
+                    print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}")
+
                     positions = get_positions(CST, XSEC)
-                    print(f"🧩 [DEBUG REST-Check] get_positions() Rückgabe: {type(positions)} / Länge: {len(positions) if positions else 0}") # debug 22.10.2025
-                    active_epics = [p["market"]["epic"] for p in positions if p.get("position")]
-                    for epic in list(open_positions.keys()):
-                        if epic not in active_epics:
-                            print(f"⚠️ {epic}: laut Server keine offene Position mehr → lokal schließen")
-                            open_positions[epic] = None
+
+                    # 🧠 Schutz: Wenn Server noch keine Daten liefert (z. B. direkt nach Token-Refresh)
+                    if not positions or not isinstance(positions, list):
+                        print("🕒 Server liefert keine Positionsdaten (wahrscheinlich frischer Token) – überspringe diesen Check einmalig.")
+                        await asyncio.sleep(3)
+                    else:
+                        print(f"🧩 [DEBUG REST-Check] get_positions() Rückgabe: {type(positions)} / Länge: {len(positions)}")
+
+                        active_epics = [p["market"]["epic"] for p in positions if p.get("position")]
+                        for epic in list(open_positions.keys()):
+                            if epic not in active_epics:
+                                print(f"⚠️ {epic}: laut Server keine offene Position mehr → lokal schließen")
+                                open_positions[epic] = None
+
                 except Exception as e:
-                    print(f"⚠️ Positionsabgleich nach Reconnect fehlgeschlagen: {e}")
+                    # 🧰 Spezialfall: Token-Fehler → kurzen Delay statt sofortigem Close
+                    if "invalid.session.token" in str(e).lower() or "error.invalid.session.token" in str(e).lower():
+                        print("⚠️ Ungültiges Token beim Positions-Check → warte 3 Sekunden und versuche später erneut.")
+                        await asyncio.sleep(3)
+                    else:
+                        print(f"⚠️ Positionsabgleich nach Reconnect fehlgeschlagen: {e}")
+
 
                 last_ping = time.time()
 
