@@ -592,9 +592,12 @@ def evaluate_trend_signal(epic, closes, spread):
     max_distance = spread * 1.5  # Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
-        print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
-              f"(dist={distance:.5f}) → kein Entry")
+        now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
+        if 900 <= now_ms <= 999:
+            print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
+                f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
+
 
     # Momentum-Filter (prüft Beschleunigung)
     # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor
@@ -761,15 +764,17 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
                 print(f"🔒 [{epic}] Break-Even aktiviert bei {price:.2f} auf {be_stop:.2f}")
 
 
-        # 🔧 Trailing-Stop nachziehen
+        # 🔧 Trailing-Stop nachziehen (nur bei echtem Fortschritt)
         if price > entry:
             new_trailing = price * (1 - TRAILING_STOP_PCT)
+
+            # Nur aktualisieren, wenn der Kurs neue Hochs (LONG) bzw. Tiefs (SHORT) erreicht
             if stop is None:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
-            elif new_trailing > stop:
+            elif new_trailing > stop + (spread * 0.5):
                 pos["trailing_stop"] = new_trailing
-                print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
+                print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
 
         # 🛡️ Break-Even-Schutz prüfen
         if pos.get("break_even_active") and "break_even_level" in pos:
@@ -802,15 +807,16 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
                 print(f"🔒 [{epic}] Break-Even aktiviert bei {price:.2f} auf {be_stop:.2f}")
 
 
-        # 🔧 Trailing-Stop nachziehen
+        # 🔧 Trailing-Stop nachziehen (nur bei echtem Fortschritt)
         if price < entry:
             new_trailing = price * (1 + TRAILING_STOP_PCT)
+
             if stop is None:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
-            elif new_trailing < stop:
+            elif new_trailing < stop - (spread * 0.5):
                 pos["trailing_stop"] = new_trailing
-                print(f"🔧 [{epic}] Trailing Stop angepasst auf {new_trailing:.2f}")
+                print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
 
         # 🛡️ Break-Even-Schutz prüfen
         if pos.get("break_even_active") and "break_even_level" in pos:
@@ -963,7 +969,17 @@ async def run_candle_aggregator_per_instrument():
                         print("⚠️ Fehler beim Empfangen:", e)
                         if "invalid.session.token" in str(e).lower() or "force_reconnect" in str(e).lower():
                             CST, XSEC = None, None
+
+                        # 🔧 Falls Verbindung unerwartet endet → Socket explizit schließen
+                        try:
+                            if "ws" in locals() and ws.open:
+                                await ws.close()
+                                print("🔌 WebSocket sauber geschlossen (nach Fehler)")
+                        except Exception:
+                            pass
+
                         break
+
 
                     # # 🧩 Debug: Zeige jede empfangene WebSocket-Nachricht (Rohdaten)
                     # if "payload" in msg:
@@ -1108,11 +1124,12 @@ async def run_candle_aggregator_per_instrument():
             except Exception:
                 pass
 
-            # 🔁 Sicherstellen, dass beim nächsten Loop wirklich neu verbunden wird
-            ws = None
-            print("⏳ 5 s warten, dann neuer Versuch ...")
+            # 🔁 Wartezeit vor Neuverbindung
+            CST, XSEC = None, None  # Token sicher invalidieren
+            print(f"⏳ {RECONNECT_DELAY}s warten, dann neuer Versuch mit neuem Login ...")
             await asyncio.sleep(RECONNECT_DELAY)
-            continue  # ➕ startet die Empfangsschleife neu
+            continue
+
 
 
 
