@@ -593,7 +593,7 @@ def evaluate_trend_signal(epic, closes, spread):
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
-        if 900 <= now_ms <= 999:
+        if 950 <= now_ms <= 999:
             print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
                 f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
@@ -910,6 +910,8 @@ def local_minute_floor(ts_ms: int) -> datetime:
 async def run_candle_aggregator_per_instrument():
     global CST, XSEC
 
+    invalid_token_streak = 0  # 🧩 Zähler für aufeinanderfolgende Tokenfehler
+
     while True:  # Endlosschleife mit Reconnect & Token-Refresh
         if not CST or not XSEC:
             CST, XSEC = capital_login()
@@ -951,13 +953,29 @@ async def run_candle_aggregator_per_instrument():
                                 open_positions[epic] = None
 
                 except Exception as e:
-                    # 🧰 Spezialfall: Token-Fehler → kurzen Delay statt sofortigem Close
-                    if "invalid.session.token" in str(e).lower() or "error.invalid.session.token" in str(e).lower():
-                        print("⚠️ Ungültiges Token beim Positions-Check → warte 3 Sekunden und versuche später erneut.")
-                        await asyncio.sleep(3)
+                    msg = str(e).lower()
+
+                    # 🧩 Tokenfehler: Session ist ungültig
+                    if "invalid.session.token" in msg or "error.invalid.session.token" in msg:
+                        invalid_token_streak += 1
+                        print(f"⚠️ Ungültiges Token (Versuch {invalid_token_streak}) → warte 5 Sekunden ...")
+
+                        # 🧠 Wenn zu viele Fehlversuche, Tokens hart zurücksetzen
+                        if invalid_token_streak >= 5:
+                            print("🚨 Zu viele Tokenfehler hintereinander → Session vollständig neu aufbauen.")
+                            CST = None
+                            XSEC = None
+                            invalid_token_streak = 0
+                            await asyncio.sleep(10)
+                        else:
+                            await asyncio.sleep(5)
+                        continue
+
+                    # 🧩 Allgemeiner Fehler
                     else:
                         print(f"⚠️ Positionsabgleich nach Reconnect fehlgeschlagen: {e}")
-
+                        invalid_token_streak = 0
+                        await asyncio.sleep(2)
 
                 last_ping = time.time()
 
