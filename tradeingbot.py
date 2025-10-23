@@ -589,7 +589,7 @@ def evaluate_trend_signal(epic, closes, spread):
 
     # Preis-vs-MA-Filter (verhindert Entries am Wellenkamm)
     distance = abs(last_close - ma_fast)
-    max_distance = spread * 1.5  # Faktor anpassbar (1.0–2.0 typisch)
+    max_distance = spread * 3.0  # Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
@@ -605,11 +605,11 @@ def evaluate_trend_signal(epic, closes, spread):
     momentum_now = last_close - prev_close
     momentum_prev = prev_close - closes[-3]
 
-    if ma_fast > ma_slow and momentum_now < momentum_prev:
+    if ma_fast > ma_slow and momentum_now < momentum_prev * 0.5:
         print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
-    if ma_fast < ma_slow and momentum_now > momentum_prev:
+    if ma_fast < ma_slow and momentum_now > momentum_prev * 0.5:
         print(f"⚠️ [{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
