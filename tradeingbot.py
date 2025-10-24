@@ -598,7 +598,6 @@ def evaluate_trend_signal(epic, closes, spread):
                 f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
 
-
     # Momentum-Filter (prüft Beschleunigung)
     # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor
     # → Annäherung über Differenz zweier aufeinanderfolgender Closes
@@ -928,6 +927,7 @@ async def run_candle_aggregator_per_instrument():
         states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
 
         print("🔌 Verbinde:", ws_url)
+        await asyncio.sleep(2)  # 🧭 kleiner Cooldown vor Neuverbindung, vermeidet Hektik bei Reconnects
         try:
             async with websockets.connect(ws_url, ping_interval=None) as ws:
                 await ws.send(json.dumps(subscribe))
