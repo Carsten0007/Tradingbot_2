@@ -48,8 +48,8 @@ CST, XSEC = None, None
 # CONFIG ping
 # ==============================
 PING_INTERVAL    = 15   # Sekunden zwischen WebSocket-Pings
-RECONNECT_DELAY  = 5    # Sekunden warten nach Verbindungsabbruch
-RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine NachrichtA
+RECONNECT_DELAY  = 3    # Sekunden warten nach Verbindungsabbruch
+RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
@@ -927,7 +927,7 @@ async def run_candle_aggregator_per_instrument():
         states = {epic: {"minute": None, "bar": None} for epic in INSTRUMENTS}
 
         print("🔌 Verbinde:", ws_url)
-        await asyncio.sleep(2)  # 🧭 kleiner Cooldown vor Neuverbindung, vermeidet Hektik bei Reconnects
+        await asyncio.sleep(RECONNECT_DELAY)  # 🧭 kleiner Cooldown vor Neuverbindung, vermeidet Hektik bei Reconnects
         try:
             async with websockets.connect(ws_url, ping_interval=None) as ws:
                 await ws.send(json.dumps(subscribe))
@@ -938,14 +938,14 @@ async def run_candle_aggregator_per_instrument():
                     print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}")
 
                     # 🕒 Kurze Pause nach Login, damit Capital-Server neue Tokens intern synchronisiert
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(RECONNECT_DELAY)
 
                     positions = get_positions(CST, XSEC)
 
                     # 🧠 Schutz: Wenn Server noch keine Daten liefert (z. B. direkt nach Token-Refresh)
                     if not positions or not isinstance(positions, list):
                         print("🕒 Server liefert keine Positionsdaten (wahrscheinlich frischer Token) – überspringe diesen Check einmalig.")
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(RECONNECT_DELAY)
                     else:
                         print(f"🧩 [DEBUG REST-Check] get_positions() Rückgabe: {type(positions)} / Länge: {len(positions)}")
 
@@ -969,16 +969,16 @@ async def run_candle_aggregator_per_instrument():
                             CST = None
                             XSEC = None
                             invalid_token_streak = 0
-                            await asyncio.sleep(10)
+                            await asyncio.sleep(RECONNECT_DELAY)
                         else:
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(RECONNECT_DELAY)
                         continue
 
                     # 🧩 Allgemeiner Fehler
                     else:
                         print(f"⚠️ Positionsabgleich nach Reconnect fehlgeschlagen: {e}")
                         invalid_token_streak = 0
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(RECONNECT_DELAY)
 
                 last_ping = time.time()
 
