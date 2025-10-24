@@ -937,6 +937,9 @@ async def run_candle_aggregator_per_instrument():
                 try:
                     print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}")
 
+                    # 🕒 Kurze Pause nach Login, damit Capital-Server neue Tokens intern synchronisiert
+                    await asyncio.sleep(3)
+
                     positions = get_positions(CST, XSEC)
 
                     # 🧠 Schutz: Wenn Server noch keine Daten liefert (z. B. direkt nach Token-Refresh)
@@ -988,6 +991,17 @@ async def run_candle_aggregator_per_instrument():
                             await ws.ping()
                             # print("📡 Ping gesendet")
                             last_ping = now
+
+                            # 💓 REST-Session aktiv halten (Ping)
+                            try:
+                                requests.get(
+                                    f"{BASE_REST}/api/v1/ping",
+                                    headers={"CST": CST, "X-SECURITY-TOKEN": XSEC},
+                                    timeout=5
+                                )
+                            except Exception as e:
+                                print(f"⚠️ REST-Ping fehlgeschlagen: {e}")
+
                         except Exception as e:
                             print("⚠️ Ping fehlgeschlagen:", e)
                             break
