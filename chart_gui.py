@@ -145,16 +145,18 @@ class ChartManager:
             # -------------------------------------------------------
             #   Diagrammtitel dynamisch anpassen (Trade-Zustand + Balance)
             # -------------------------------------------------------
+            balance_val = None
             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
                 bid_now = dq[-1].get("bid")
                 ask_now = dq[-1].get("ask")
 
-                if pos["direction"] == "BUY" and bid_now:
+                if pos["direction"] == "BUY" and bid_now is not None:
                     balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else 0.3)
-                elif pos["direction"] == "SELL" and ask_now:
+                elif pos["direction"] == "SELL" and ask_now is not None:
                     balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else 0.3)
-                else:
-                    balance_val = 0.0
+                
+                if balance_val is None:
+                    return
 
                 color = "green" if balance_val > 0 else "red" if balance_val < 0 else "black"
                 title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} €"
