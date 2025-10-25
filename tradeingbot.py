@@ -593,7 +593,7 @@ def evaluate_trend_signal(epic, closes, spread):
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
-        if 950 <= now_ms <= 999:
+        if 980 <= now_ms <= 999:
             print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
                 f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
