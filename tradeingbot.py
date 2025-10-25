@@ -35,8 +35,8 @@ BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
 ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
-#INSTRUMENTS = ["BTCUSD", "ETHUSD"]
-INSTRUMENTS = ["ETHUSD"]
+#INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
+INSTRUMENTS = ["XRPUSD"]
 
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
@@ -64,12 +64,21 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
-TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
-TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+# ETHBTC
+# STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+# TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+# TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+# TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+# BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+# BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+# XRPUSD
+STOP_LOSS_PCT           = 0.008   # fester Stop-Loss
+TRAILING_STOP_PCT       = 0.004   # Trailing Stop
+TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TAKE_PROFIT_PCT         = 0.0020  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP_PCT     = 0.0008 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT   = 0.0008 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
@@ -127,7 +136,8 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
     #   f"raw_size={risk_amount / margin_per_unit}, size_rounded={round(size, 3)}, "
     #   f"minDealSize={mkt_data.get('minDealSize')}, lotSize={mkt_data.get('lotSize')}")
 
-    size = 0.3 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+    # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€
+    size = 400 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
 
 
