@@ -24,7 +24,6 @@ API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
 USERNAME = os.getenv("CAPITAL_USERNAME") or "carsten.schoettke@gmx.de"
 PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy&"
 
-
 # Basis-URLs LIVE
 #BASE_REST   = "https://api-capital.backend-capital.com"
 #BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
@@ -67,13 +66,13 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # funzt ~
 # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
-
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -614,7 +613,7 @@ def evaluate_trend_signal(epic, closes, spread):
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
         if 980 <= now_ms <= 999:
-            print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
+            print(f"[{epic}] Preis zu weit vom {ma_type} entfernt "
                 f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
 
@@ -643,11 +642,11 @@ def evaluate_trend_signal(epic, closes, spread):
     # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
     # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
     if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
-        print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
+        print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
     if ma_fast < ma_slow and momentum_now > momentum_prev * 100: # 0.1
-        print(f"⚠️ [{epic}] SHORT-Momentum schwächer → kein SELL")
+        print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
     # ======================================================
@@ -810,7 +809,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
             if stop is None:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
-            elif new_trailing > stop + (spread * 0.5):
+            elif new_trailing > stop + (spread * TRAILING_SET_CALM_DOWN):
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
 
@@ -852,7 +851,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
             if stop is None:
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
-            elif new_trailing < stop - (spread * 0.5):
+            elif new_trailing < stop - (spread * TRAILING_SET_CALM_DOWN):
                 pos["trailing_stop"] = new_trailing
                 print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
 
