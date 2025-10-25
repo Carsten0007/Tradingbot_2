@@ -553,41 +553,61 @@ def hma(values, period: int):
 
 
 # ==============================
-# TRADE SIGNAL mit EMA UND WMA / HMA
+#  TRADE-SIGNAL mit EMA / HMA
 # ==============================
+# Bewertet Trendrichtung und Signalstärke anhand gleitender Durchschnitte.
+# Kombination aus EMA- und HMA-Varianten für unterschiedliche Glättung.
+# Enthält Filter zur Vermeidung überdehnter oder träger Trends.
 
 def evaluate_trend_signal(epic, closes, spread):
+    # ------------------------------
+    #  1️⃣ Berechnung der gleitenden Mittelwerte
     # Immer beide berechnen
+    # ------------------------------
     ema_fast = ema(closes, EMA_FAST)
     ema_slow = ema(closes, EMA_SLOW)
     hma_fast = hma(closes, EMA_FAST)
     hma_slow = hma(closes, EMA_SLOW)
 
-    # Je nach Schalter verwenden wir EMA oder HMA
+    # Auswahl, ob HMA oder EMA aktiv verwendet wird
     if USE_HMA:
         ma_fast, ma_slow, ma_type = hma_fast, hma_slow, "HMA"
     else:
         ma_fast, ma_slow, ma_type = ema_fast, ema_slow, "EMA"
 
+    # Wenn noch nicht genug Kerzen vorhanden → kein valides Signal
     if ma_fast is None or ma_slow is None:
-        #return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
         return f"HOLD (zu wenig Daten: {len(closes)}/{EMA_SLOW})"
 
     last_close = closes[-1]
     prev_close = closes[-2]
 
-    # # Debug-Ausgabe für Vergleich
-    # print(
-    #     f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
-    #     f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
-    #     f"Close={last_close:.2f}"
-    # )
-
     # ======================================================
-    #  🧭 ENTRY-FILTER: Vermeide späte oder schwache Signale
+    #  2️⃣ ENTRY-FILTER: Vermeide späte oder schwache Signale
     # ======================================================
 
-    # Preis-vs-MA-Filter (verhindert Entries am Wellenkamm)
+    # --- Preis-vs-MA-Filter: Verhindert Einstiege bei überdehnten Bewegungen / wenn der Kurs zu weit vom MA entfernt ist
+    #
+    # Ziel:
+    # Kein Entry, wenn der aktuelle Kurs (last_close) zu weit
+    # vom kurzfristigen gleitenden Durchschnitt (ma_fast) entfernt liegt.
+    #
+    # Hintergrund:
+    # - Wenn der Kurs stark über oder unter dem MA liegt,
+    #   befindet sich der Markt meist am "Wellenkamm" oder "Boden".
+    # - In solchen Phasen kommt es häufig zu kurzfristigen Gegenbewegungen (Pullbacks).
+    # - Der Filter soll daher nur Einstiege erlauben,
+    #   solange der Kurs sich noch in vertretbarer Nähe zum Trendmittelwert bewegt.
+    #
+    # Berechnung:
+    # distance = absolute Abweichung zwischen Kurs und MA
+    # max_distance = zulässige maximale Abweichung, proportional zur aktuellen Spanne (spread)
+    #
+    # Ist die Abweichung größer als max_distance → kein Einstieg.
+    #
+    # Hinweis:
+    # Der Faktor ist aktuell extrem hoch (100), um den Filter faktisch zu deaktivieren.
+    # Realistisch wäre z. B. 1.0–2.0 für einen wirksamen Schutz vor Spät-Entries.
     distance = abs(last_close - ma_fast)
     max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
 
@@ -598,12 +618,30 @@ def evaluate_trend_signal(epic, closes, spread):
                 f"(dist={distance:.5f}) → kein Entry")
         return f"HOLD (überdehnt, {ma_type})"
 
-    # Momentum-Filter (prüft Beschleunigung)
-    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor
+    # --- Momentum-Filter: prüft Beschleunigung der Kursbewegung
+    # Wenn der gleitende Durchschnitt (MA) einen Trend anzeigt,
+    # soll die aktuelle Preisbewegung (momentum_now) diesen Trend bestätigen.
+    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor / wenn aktuelle Bewegung zunimmt
     # → Annäherung über Differenz zweier aufeinanderfolgender Closes
+
+    # momentum_now  = letzte Preisänderung (aktueller Impuls)
+    # momentum_prev = vorherige Preisänderung (vorheriger Impuls)
     momentum_now = last_close - prev_close
     momentum_prev = prev_close - closes[-3]
 
+    # Idee:
+    # - Bei steigendem Trend (ma_fast > ma_slow):
+    #     momentum_now sollte >= momentum_prev sein.
+    #     Wenn momentum_now deutlich kleiner ist, flacht der Trend ab → kein Entry.
+    #
+    # - Bei fallendem Trend (ma_fast < ma_slow):
+    #     momentum_now sollte <= momentum_prev sein.
+    #     Wenn momentum_now deutlich größer ist, verliert der Abwärtstrend an Stärke → kein Entry.
+    #
+    # Die Faktoren (hier *-100 / *100) sind testweise extrem groß gewählt,
+    # um den Filter faktisch zu deaktivieren (ursprünglich 0.1 = 10 % Schwächungstoleranz).
+    # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
+    # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
     if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
         print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
@@ -613,18 +651,19 @@ def evaluate_trend_signal(epic, closes, spread):
         return f"HOLD (Momentum schwach, {ma_type})"
 
     # ======================================================
-    #  🧭 ENTRY-FILTER ENDE
+    #  3️⃣ SIGNAL-LOGIK (Kaufsignal / Verkaufssignal)
     # ======================================================
 
-
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
+    # Trend-Logik: Fast > Slow → Aufwärtstrend → BUY
     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
         return f"BEREIT: BUY ✅ ({ma_type})"
+    # Umgekehrt: Fast < Slow → Abwärtstrend → SELL
     elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
         return f"BEREIT: SELL ⛔ ({ma_type})"
+    # Kein klares Signal
     else:
         return f"UNSICHER ⚪ ({ma_type})"
-
 
 # ==============================
 # Hilfsfunktionen für robustes Open/Close
