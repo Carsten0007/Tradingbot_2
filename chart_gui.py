@@ -146,14 +146,15 @@ class ChartManager:
             #   Diagrammtitel dynamisch anpassen (Trade-Zustand + Balance)
             # -------------------------------------------------------
             balance_val = None
+
             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
                 bid_now = dq[-1].get("bid")
                 ask_now = dq[-1].get("ask")
-
+                from tradeingbot import MANUAL_TRADE_SIZE # lokaler import des hart gesetzten order volumens
                 if pos["direction"] == "BUY" and bid_now is not None:
-                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else 0.3)
+                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
                 elif pos["direction"] == "SELL" and ask_now is not None:
-                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else 0.3)
+                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
                 
                 if balance_val is None:
                     return

@@ -36,7 +36,7 @@ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
 #INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
-INSTRUMENTS = ["XRPUSD"]
+INSTRUMENTS = ["BTCUSD"]
 
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
@@ -58,26 +58,35 @@ EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
 EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
-
+MANUAL_TRADE_SIZE = 0.01 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
 USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 
 # ==============================
 # Risk Management Parameter
 # ==============================
 # ETHBTC
-# STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
-# TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
-# TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-# TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
-# BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-# BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+# STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+# TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
+# TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+# TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
+# BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+# BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+
 # XRPUSD
-STOP_LOSS_PCT           = 0.008   # fester Stop-Loss
-TRAILING_STOP_PCT       = 0.004   # Trailing Stop
-TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT         = 0.0020  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT     = 0.0008 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT   = 0.0008 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+# STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
+# TRAILING_STOP_PCT       = 0.007   # Trailing Stop
+# TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+# TAKE_PROFIT_PCT         = 0.015  # z. B. 0,2% Gewinnziel
+# BREAK_EVEN_STOP_PCT     = 0.0015 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+# BREAK_EVEN_BUFFER_PCT   = 0.0015 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+
+# BTCUSD
+STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
+TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
+TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TAKE_PROFIT_PCT         = 0.0020    # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 
 # funzt ~
@@ -137,7 +146,7 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
     #   f"minDealSize={mkt_data.get('minDealSize')}, lotSize={mkt_data.get('lotSize')}")
 
     # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€
-    size = 400 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+    size = MANUAL_TRADE_SIZE # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
 
 
