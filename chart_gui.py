@@ -68,7 +68,7 @@ class ChartManager:
                 "close": bar.get("close"),
 
                 # Entry bleibt persistent, wenn kein neuer Wert kommt
-                "entry": bar.get("entry") or pos.get("entry_price") or last.get("entry"),
+                "entry": pos.get("entry_price") or last.get("entry"),
 
                 # Stop-Loss
                 "sl": float(bar.get("sl") or pos.get("stop_loss") or last.get("sl") or 0)
@@ -153,14 +153,21 @@ class ChartManager:
             balance_val = None
 
             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
-                bid_now = dq[-1].get("bid")
-                ask_now = dq[-1].get("ask")
-                from tradeingbot import MANUAL_TRADE_SIZE # lokaler import des hart gesetzten order volumens
-                if pos["direction"] == "BUY" and bid_now is not None:
-                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
-                elif pos["direction"] == "SELL" and ask_now is not None:
-                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
-                
+                # 1) Primär: Live-PnL aus dem Tickpfad verwenden
+                balance_val = pos.get("unrealized_pnl")
+
+                # 2) Fallback (nur falls noch nicht gesetzt): alte Berechnung
+                if balance_val is None:
+                    bid_now = dq[-1].get("bid")
+                    ask_now = dq[-1].get("ask")
+                    from tradeingbot import MANUAL_TRADE_SIZE
+                    size = pos.get("size") if pos.get("size") else MANUAL_TRADE_SIZE
+
+                    if pos["direction"] == "BUY" and bid_now is not None:
+                        balance_val = (bid_now - pos["entry_price"]) * size
+                    elif pos["direction"] == "SELL" and ask_now is not None:
+                        balance_val = (pos["entry_price"] - ask_now) * size
+
                 if balance_val is None:
                     return
 

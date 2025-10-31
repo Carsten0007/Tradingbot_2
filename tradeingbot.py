@@ -12,6 +12,8 @@ from collections import deque
 from colorama import Fore, Style, init
 from chart_gui import ChartManager
 
+# Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
+
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
 
@@ -260,13 +262,41 @@ def open_position(CST, XSEC, epic, direction, size, entry_price, retry=True):
                         deal_id = conf_data.get("dealId")
 
                     if deal_id:
-                        open_positions[epic] = {
-                            "direction": direction,
-                            "dealId": deal_id,
-                            "entry_price": entry_price,
-                            "trailing_stop": None
-                        }
-                        print(f"🆕 [{epic}] Open erfolgreich → {direction} (dealId={deal_id}, entry={entry_price})")
+                        # 1) Optional: Fill-Preis aus Confirm bevorzugen (falls vorhanden)
+                        fill_price = None
+                        try:
+                            fill_price = conf_data.get("level") or conf_data.get("price")
+                            if not fill_price:
+                                affected = conf_data.get("affectedDeals")
+                                if isinstance(affected, list) and affected:
+                                    fill_price = affected[0].get("level") or affected[0].get("price")
+                            fill_price = float(fill_price) if fill_price is not None else None
+                        except Exception:
+                            fill_price = None
+
+                        # 2) Entry write-once: Confirm-Fill > übergebener Seitenpreis
+                        final_entry = fill_price if isinstance(fill_price, (int, float)) else entry_price
+
+                        # 3) Write-once speichern (falls schon vorhanden, nicht überschreiben)
+                        prev = open_positions.get(epic)
+                        if not isinstance(prev, dict) or prev.get("entry_price") is None:
+                            open_positions[epic] = {
+                                "direction": direction,
+                                "dealId": deal_id,
+                                "entry_price": final_entry,
+                                "size": size,                 # <-- reale Stückzahl mitschreiben
+                                "trailing_stop": None
+                            }
+                        else:
+                            # nur Metadaten aktualisieren, Entry/Size unangetastet lassen
+                            open_positions[epic].update({
+                                "direction": direction,
+                                "dealId": deal_id
+                            })
+
+                        print(f"🆕 [{epic}] Open erfolgreich → {direction} "
+                            f"(dealId={open_positions[epic].get('dealId')}, entry={open_positions[epic].get('entry_price')})")
+
                     else:
                         print(f"⚠️ Keine dealId aus Confirm extrahiert für {epic}")
         except Exception as e:
@@ -513,7 +543,6 @@ def on_candle_close(epic, bar):
                 "tp": tp,
                 "ts": ts,
                 "be": be,
-                "entry": entry,
             },
             open_positions.get(epic, {}),
             ema_fast=ema(closes, EMA_FAST),
@@ -638,7 +667,7 @@ def evaluate_trend_signal(epic, closes, spread):
     # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
     # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
     distance = abs(last_close - ma_fast)
-    max_distance = spread * 30  # 8 Faktor anpassbar (1.0–2.0 typisch)
+    max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
@@ -675,11 +704,11 @@ def evaluate_trend_signal(epic, closes, spread):
     # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
     # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
     # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
-    if ma_fast > ma_slow and momentum_now < momentum_prev * 3.0: # 0.1
+    if ma_fast > ma_slow and momentum_now < momentum_prev * 1.0: # 0.1
         print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
-    if ma_fast < ma_slow and momentum_now > momentum_prev * 3.0: # 0.1
+    if ma_fast < ma_slow and momentum_now > momentum_prev * 1.0: # 0.1
         print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
@@ -1117,12 +1146,32 @@ async def run_candle_aggregator_per_instrument():
                     if not epic or epic not in states:
                         continue
 
+                    # --- Parse Tick-Felder robust ---
                     try:
-                        bid = float(p["bid"])
-                        ask = float(p["ofr"])
+                        bid   = float(p["bid"])
+                        ask   = float(p["ofr"])
                         ts_ms = int(p["timestamp"])
                     except Exception:
                         continue
+
+                    # --- Live-PnL nur im Tickpfad berechnen ---
+                    pos = open_positions.get(epic)
+                    if isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price") is not None:
+                        entry = float(pos["entry_price"])
+                        qty   = float(pos.get("size") or MANUAL_TRADE_SIZE)
+
+                        if pos["direction"] == "BUY":
+                            mark = bid              # LONG → Bewertung am Bid
+                            pnl  = (mark - entry) * qty
+                        else:  # SELL
+                            mark = ask              # SHORT → Bewertung am Ask
+                            pnl  = (entry - mark) * qty
+
+                        # In-place aktualisieren: Chart liest nur noch diese Felder
+                        pos["mark_price"]     = mark
+                        pos["unrealized_pnl"] = pnl
+                        pos["last_tick_ms"]   = ts_ms
+
 
                     mid_price = (bid + ask) / 2.0
                     spread = ask - bid
