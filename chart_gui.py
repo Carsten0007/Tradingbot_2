@@ -7,6 +7,10 @@ from collections import deque
 from matplotlib.dates import DateFormatter
 from zoneinfo import ZoneInfo
 
+# Einheitliche TZ & Matplotlib-Epoch setzen
+LOCAL_TZ = ZoneInfo("Europe/Berlin")
+mdates.set_epoch('1970-01-01T00:00:00+00:00')
+
 class ChartManager:
     def __init__(self, window_size_sec=300):
         self.window = window_size_sec
@@ -41,8 +45,9 @@ class ChartManager:
                 from tradeingbot import to_local_dt
                 now = to_local_dt(ts_ms)
             except ImportError:
-                now = dt.datetime.fromtimestamp(ts_ms / 1000.0)
-          
+                # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
+                now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)
+
             # Bid / Ask übernehmen
             # 🧩 Sicherstellen, dass Bid/Ask immer float sind
             bid = bar.get("bid")
@@ -187,10 +192,10 @@ class ChartManager:
         ax.set_title(f"Live Chart – {epic}")
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=LOCAL_TZ))
 
         # 🧭 Initial-Skalierung – 5 Minuten Fenster und Dummy-Y-Range
-        now = dt.datetime.now()
+        now = dt.datetime.now(LOCAL_TZ)
         ax.set_xlim(now - dt.timedelta(seconds=self.window), now)
 
         # Temporärer Y-Bereich, damit nichts flackert (z. B. ±1 % um 4000)
@@ -348,7 +353,7 @@ class ChartManager:
             return  # bereits gesetzt
 
         # Zeitpunkt des letzten gültigen Datensatzes
-        t = self.data[epic][-1]["time"] if self.data.get(epic) else dt.datetime.now()
+        t = self.data[epic][-1]["time"] if self.data.get(epic) else dt.datetime.now(LOCAL_TZ)
 
         # Marker + Linie setzen
         self.lines[epic]["entry_marker"].set_data([t], [price])

@@ -95,6 +95,9 @@ BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
 
+def utc_now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
 # Candle-Historie für EMA-Berechnung
 candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
 
@@ -330,7 +333,7 @@ def on_candle_forming(epic, bar, ts_ms):
 
     # Zeit konvertieren
     local_dt = to_local_dt(ts_ms)
-    local_time = local_dt.strftime("%d.%m.%Y %H:%M:%S")
+    local_time = local_dt.strftime("%d.%m.%Y %H:%M:%S %Z")
 
     # Nur letzten Tick pro Sekunde ausgeben
     sec_key = local_dt.replace(microsecond=0)
@@ -394,13 +397,14 @@ def on_candle_forming(epic, bar, ts_ms):
 
     if mid_open and mid_close:
         print(
-            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
+            f"[{epic}] {local_time} - "
             f"O:{mid_open:.2f} C:{mid_close:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
             f"- sl={sl_str} ts={ts_str} tp={tp_str}"
         )
+
     else:
         print(
-            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
+            f"[{epic}] {local_time} - "
             f"O:{open_ask:.2f}/{open_bid:.2f}  C:{close_ask:.2f}/{close_bid:.2f} "
             f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
         )
@@ -494,7 +498,7 @@ def on_candle_close(epic, bar):
         # === 6️⃣ Chart-Update mit neuen Bid/Ask-Werten ===
         charts.update(
             epic,
-            bar.get("timestamp") or int(time.time() * 1000),
+            bar.get("timestamp") or int(datetime.now(timezone.utc).timestamp() * 1000),
             {
                 "open_bid": bar.get("open_bid"),
                 "open_ask": bar.get("open_ask"),
@@ -1254,6 +1258,12 @@ async def run_candle_aggregator_per_instrument():
 
 if __name__ == "__main__":
     try:
+        print("Startup sanity:")
+        print("  Local now  :", datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M:%S %Z"))
+        print("  UTC now    :", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC"))
+        test_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        print("  to_local_dt:", to_local_dt(test_ms).strftime("%d.%m.%Y %H:%M:%S %Z"))
+
         asyncio.run(run_candle_aggregator_per_instrument())
     except KeyboardInterrupt:
         print("\n🛑 Manuell abgebrochen (Ctrl+C erkannt)")
