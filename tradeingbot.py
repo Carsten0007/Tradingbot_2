@@ -36,7 +36,7 @@ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
 #INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
-INSTRUMENTS = ["BTCUSD"]
+INSTRUMENTS = ["ETHUSD"]
 
 # Lokalzeit
 LOCAL_TZ = ZoneInfo("Europe/Berlin")
@@ -54,23 +54,23 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
-MANUAL_TRADE_SIZE = 0.01 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
+MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
 USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 
 # ==============================
 # Risk Management Parameter
 # ==============================
 # ETHBTC
-# STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
-# TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
-# TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-# TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
-# BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-# BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
+TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TAKE_PROFIT_PCT           = 0.0040  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
@@ -81,12 +81,12 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # BREAK_EVEN_BUFFER_PCT   = 0.0015 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # BTCUSD
-STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
-TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
-TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT         = 0.0020    # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+# STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
+# TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
+# TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+# TAKE_PROFIT_PCT         = 0.0030    # z. B. 0,2% Gewinnziel
+# BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
+# BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 
 # funzt ~
@@ -626,8 +626,15 @@ def evaluate_trend_signal(epic, closes, spread):
     # Hinweis:
     # Der Faktor ist aktuell extrem hoch (100), um den Filter faktisch zu deaktivieren.
     # Realistisch wäre z. B. 1.0–2.0 für einen wirksamen Schutz vor Spät-Entries.
+    # distance misst, wie weit der Kurs vom gleitenden Durchschnitt entfernt ist.
+    # max_distance ist die erlaubte maximale Abweichung.
+    # Wenn der Kurs weiter weg ist als max_distance, wird kein Trade gemacht („überdehnt“).
+    # 1.0	sehr vorsichtig	nur Entries nah am MA erlaubt
+    # 2.0	moderat	kleine Überdehnungen noch erlaubt
+    # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
+    # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
     distance = abs(last_close - ma_fast)
-    max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
+    max_distance = spread * 30  # 8 Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
@@ -660,11 +667,15 @@ def evaluate_trend_signal(epic, closes, spread):
     # um den Filter faktisch zu deaktivieren (ursprünglich 0.1 = 10 % Schwächungstoleranz).
     # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
     # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
-    if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
+    # 0.05	Momentum_now < 5 % von Momentum_prev → sehr empfindlich	kaum Trades, sehr vorsichtig
+    # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
+    # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
+    # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
+    if ma_fast > ma_slow and momentum_now < momentum_prev * 3.0: # 0.1
         print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
-    if ma_fast < ma_slow and momentum_now > momentum_prev * 100: # 0.1
+    if ma_fast < ma_slow and momentum_now > momentum_prev * 3.0: # 0.1
         print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
