@@ -154,10 +154,6 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
     size = MANUAL_TRADE_SIZE # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
 
-
-
-
-
 # ==============================
 # LOGIN (entspricht Zelle B)
 # ==============================
@@ -336,8 +332,6 @@ def close_position(CST, XSEC, epic, deal_id=None, retry=True):
     return r
 
 
-
-
 # ==============================
 # SIGNAL-LOGIK (Zelle D)
 # ==============================
@@ -393,7 +387,6 @@ def on_candle_forming(epic, bar, ts_ms):
         instant = "SELL ⛔"
     else:
         instant = "NEUTRAL ⚪"
-
   
     # Offene Position abrufen für terminal ausgabe
     pos = open_positions.get(epic)
@@ -444,7 +437,6 @@ def on_candle_forming(epic, bar, ts_ms):
             f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
         )
 
-
     # Hook🧩 Chart aktualisieren – nur gültige Marktseitendaten übergeben
     charts.update(
     epic,
@@ -464,6 +456,55 @@ def on_candle_forming(epic, bar, ts_ms):
     entry=entry, sl=sl, tp=tp, ts=ts,
     trend=trend   # 🧭 Trend-String mitgeben für Pfeil im Titel
 )
+
+# ==============================
+# Horizontalität berechnen (0-1)
+# ==============================
+
+def horizontality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
+    """
+    Horizontalitäts-Faktor ∈ [0, 1] für ein Instrument.
+      0.0 = stark trendend/vertikal
+      1.0 = seitwärts/horizontal
+
+    Grundlage: TICK_RING[epic] = deque[(ts_ms:int, mid:float)] (globaler Ringpuffer).
+    Verwendet nur Ticks der letzten `window_sec` Sekunden. Gibt 0.5 zurück,
+    wenn (noch) zu wenig Ticks vorhanden sind.
+    """
+    dq = TICK_RING.get(epic)
+    if not dq:
+        return 0.5
+
+    # Zeitfenster bestimmen am neuesten Tick (keine Systemzeit nötig)
+    newest_ts = dq[-1][0]
+    cut_ts = newest_ts - int(window_sec * 1000)
+
+    # Effizient: von hinten sammeln bis cut erreicht, deque NICHT verändern
+    seg_prices_rev = []
+    for ts, mid in reversed(dq):
+        if ts < cut_ts:
+            break
+        seg_prices_rev.append(mid)
+
+    if len(seg_prices_rev) < min_samples:
+        return 0.5
+
+    prices = list(reversed(seg_prices_rev))
+
+    # Trend/Chop-Heuristik: vertikal = Netto / Summe der Absolutbewegungen
+    diffs = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    chop = sum(abs(d) for d in diffs)
+    if chop <= 0:
+        return 1.0  # komplett flach → maximale Horizontalität
+    trend = abs(sum(diffs))
+
+    # 1 - (Trendanteil) = Horizontalität
+    h = 1.0 - (trend / chop)
+    # clamp
+    return 0.0 if h < 0.0 else (1.0 if h > 1.0 else h)
+
+
+
 
 def on_candle_close(epic, bar):
     # Wird bei Abschluss jeder 1m-Kerze aufgerufen.
@@ -852,6 +893,9 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     # Spread in Prozent der Entry-Basis
     spread_pct = spread / entry
     price = bid if direction == "BUY" else ask
+
+    print(f"🧭 [{epic}] horizontality(180s) = {horizontality_factor(epic):.2f}")
+
 
     # === LONG ===
     if direction == "BUY":
