@@ -172,7 +172,7 @@ class ChartManager:
                     return
 
                 color = "green" if balance_val > 0 else "red" if balance_val < 0 else "black"
-                title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} €"
+                title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} $"
             else:
                 title = "Aktuell kein Trade"
                 color = "black"
@@ -213,17 +213,17 @@ class ChartManager:
 
         # Linien vorbereiten – deutlicher & konsistenter
         lines = {
-            "bid": ax.plot([], [], label="Bid", color="lightblue", linewidth=0.8, alpha=0.8)[0],
-            "ask": ax.plot([], [], label="Ask", color="lightcoral", linewidth=0.8, alpha=0.8)[0],
+            "bid": ax.plot([], [], label="Bid", color="blue", linewidth=0.8, alpha=0.8)[0],
+            "ask": ax.plot([], [], label="Ask", color="red", linewidth=0.8, alpha=0.8)[0],
             "entry": ax.plot([], [], label="Entry", color="gray", linestyle="--")[0],
-            "sl": ax.plot([], [], label="Stop-Loss", color="red", linestyle=":", linewidth=1.1)[0],
+            "sl": ax.plot([], [], label="Stop-Loss", color="darkorange", linestyle=":", linewidth=1.1)[0],
             "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
             "tp": ax.plot([], [], label="Take-Profit", color="green", linestyle=":", linewidth=1.1)[0],
-            "be": ax.plot([], [], label="Break-Even", color="purple", linestyle="-.", linewidth=1.1)[0],
-            "ema_fast": ax.plot([], [], label="EMA Fast", color="cyan", linewidth=0.5, alpha=0.6)[0],
-            "ema_slow": ax.plot([], [], label="EMA Slow", color="magenta", linewidth=0.5, alpha=0.6)[0],
-            "hma_fast": ax.plot([], [], label="HMA Fast", color="deepskyblue", linewidth=0.5, alpha=0.6)[0],
-            "hma_slow": ax.plot([], [], label="HMA Slow", color="violet", linewidth=0.5, alpha=0.6)[0],
+            "be": ax.plot([], [], label="Break-Even", color="brown", linestyle="-.", linewidth=1.1)[0],
+            "ema_fast": ax.plot([], [], label="EMA Fast", color="lightgrey", linewidth=0.5, alpha=0.6)[0],
+            "ema_slow": ax.plot([], [], label="EMA Slow", color="darkgrey", linewidth=0.5, alpha=0.6)[0],
+            "hma_fast": ax.plot([], [], label="HMA Fast", color="lightgreen", linewidth=0.5, alpha=0.6)[0],
+            "hma_slow": ax.plot([], [], label="HMA Slow", color="darkgreen", linewidth=0.5, alpha=0.6)[0],
         }
 
         # Marker für Entry

@@ -66,7 +66,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # Risk Management Parameter
 # ==============================
-# ETHBTC
+# ETHUSD/ETHEUR
 STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
