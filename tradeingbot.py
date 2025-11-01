@@ -17,9 +17,9 @@ from chart_gui import ChartManager
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
 
-# ==============================
-# SETTINGS (entspricht Zelle A)
-# ==============================
+# Ringpuffer für Tick-Daten (mid)
+TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
+TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
 
 # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
 API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
@@ -349,6 +349,11 @@ def on_candle_forming(epic, bar, ts_ms):
     close_ask = bar.get("close_ask")
     mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else None
     closes = list(candle_history[epic]) + [mid_price]
+
+    # Ringpuffer füttern (Mid über close_bid/close_ask des aktuellen Ticks)
+    if mid_price is not None:
+        dq = TICK_RING.setdefault(epic, deque(maxlen=TICK_RING_MAXLEN))
+        dq.append((int(ts_ms), float(mid_price)))
 
     # 🔧 Spread auf Basis echter Marktseiten (Ask–Bid)
     high_ask = bar.get("high_ask")
