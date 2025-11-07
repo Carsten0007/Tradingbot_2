@@ -68,9 +68,9 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # ETHUSD/ETHEUR
 STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
+TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0040  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
@@ -461,7 +461,7 @@ def on_candle_forming(epic, bar, ts_ms):
 # Horizontalität berechnen (0-1)
 # ==============================
 
-def verticality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
+def directionality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
     # Vertikalitäts-Faktor ∈ [0, 1] für ein Instrument.
     #   0.0 = horizontal / seitwärts
     #   1.0 = starker Trend
@@ -887,7 +887,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     spread_pct = spread / entry
     price = bid if direction == "BUY" else ask
 
-    print(f"🧭 [{epic}] verticality(60s) = {verticality_factor(epic):.2f}")
+    print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
 
 
     # === LONG ===
