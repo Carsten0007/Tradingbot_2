@@ -244,6 +244,7 @@ class ChartManager:
         lines = self.lines[epic]
         times = [d["time"] for d in dq]
 
+
         # 🚫 Falls kein Trade offen → BE-, SL-, TP-, TS-Linien löschen
         if not any(d.get("direction") for d in dq if d.get("direction")):
             for key in ["sl", "tp", "ts", "be"]:
@@ -270,33 +271,41 @@ class ChartManager:
         lines["bid"].set_data(t_vals, b_vals)
         lines["ask"].set_data(t_vals, a_vals)
 
+        # --- Rolling window (immer self.window Sekunden) ---
+        max_time = t_vals[-1]
+        min_time = max_time - dt.timedelta(seconds=self.window)
+        ax = self.lines[epic]["ax"]
+        ax.set_xlim(min_time, max_time)
+
+
         # 📏 Dynamische Initial-Skalierung
         ax = self.lines[epic]["ax"]
         # X-Achse: lokale Zeit anzeigen (z. B. Europe/Berlin)
         ax.xaxis.set_major_formatter(
             DateFormatter("%H:%M:%S", tz=ZoneInfo("Europe/Berlin"))
         )
-        mid = (b_vals[-1] + a_vals[-1]) / 2
-        ax.set_ylim(mid - 15, mid + 15)
-
-
+        
         # 📈 EMA/HMA-Linien mit Sanity-Check (nur wenn genügend gültige Werte)
         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
-            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
-            if len(vals) >= 3:
-                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
-                lines[key].set_data(valid_times, vals)
+            pts = [
+                (d["time"], d.get(key))
+                for d in dq
+                if isinstance(d.get(key), (int, float)) and (min_time <= d["time"] <= max_time)
+            ]
+            if len(pts) >= 3:
+                t_ma, v_ma = zip(*pts)
+                lines[key].set_data(t_ma, v_ma)
             else:
                 lines[key].set_data([], [])
         
-        # 🔹 Einzelwerte (Stop, TP, Trailing, Break-Even)
+        # 🔹 Einzelwerte als horizontale Linien über das aktuelle Fenster
         for key in ["sl", "tp", "ts", "be"]:
-            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
-            if len(vals) >= 1:
-                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
-                lines[key].set_data(valid_times, vals)
+            val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+            if val is not None:
+                lines[key].set_data([min_time, max_time], [val, val])
             else:
                 lines[key].set_data([], [])
+
 
 
         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
@@ -308,41 +317,28 @@ class ChartManager:
             # min_time = max_time - dt.timedelta(seconds=self.window)
             # ax.set_xlim(min_time, max_time)
 
-            # 2️⃣ Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
-            values = []
-            values += [v for v in (bids + asks) if v is not None]
+            # 2️⃣ Y-Achse: automatisch auf relevante Werte im Fenster skalieren (+5 % Puffer)
+            values = list(b_vals) + list(a_vals)
+
             for key in ["sl", "tp", "ts", "be", "entry"]:
-                vals = [d.get(key) for d in dq if isinstance(d.get(key), (int, float))]
-                values += vals
+                val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+                if val is not None:
+                    values.append(val)
 
             if values:
                 ymin, ymax = min(values), max(values)
                 padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
                 ax.set_ylim(ymin - padding, ymax + padding)
 
-        # 🟩 Entry-Linie: horizontal über gesamte Zeitachse (fix gegen Verschwinden)
-            entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
-            if entry_vals:
-                entry_price = entry_vals[-1]
-                try:
-                    x_min, x_max = ax.get_xlim()
-                    if x_min == x_max:
-                        x_min, x_max = times[0], times[-1]
-                except Exception:
-                    x_min, x_max = times[0], times[-1]
 
-                # Horizontale Linie über gesamte X-Achse
-                lines["entry"].set_data([x_min, x_max], [entry_price, entry_price])
-            else:
-                # Nur leeren, wenn kein aktiver Trade – sonst Linie halten
-                if not any(d.get("direction") for d in dq):
-                    lines["entry"].set_data([], [])
-
-        # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
-        max_time = times[-1]
-        min_time = max_time - dt.timedelta(seconds=self.window)
-        ax.set_xlim(min_time, max_time)
-
+        # 🟩 Entry-Linie über das aktuelle Fenster
+        entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
+        if entry_vals:
+            entry_price = entry_vals[-1]
+            lines["entry"].set_data([min_time, max_time], [entry_price, entry_price])
+        else:
+            lines["entry"].set_data([], [])
+        
         # 🔁 Refresh
         lines["fig"].canvas.draw_idle()
         lines["fig"].canvas.flush_events()

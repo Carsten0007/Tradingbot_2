@@ -56,8 +56,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 2 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 5 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
@@ -67,11 +67,11 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
+STOP_LOSS_PCT             = 0.01018   # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.01010   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_STOP_PCT       = 0.01001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
@@ -1260,7 +1260,9 @@ async def run_candle_aggregator_per_instrument():
                         )
 
                         # Candle schließen
-                        on_candle_close(epic, bar)
+                        bar_to_close = st["bar"].copy()          # ← Kopie, keine spätere Nebenwirkung
+                        bar_to_close.setdefault("timestamp", ts_ms)
+                        on_candle_close(epic, bar_to_close)
 
                         # Neue Minute starten
                         st["minute"] = minute_key
@@ -1269,7 +1271,8 @@ async def run_candle_aggregator_per_instrument():
                             "high_bid": bid, "low_bid": bid,
                             "high_ask": ask, "low_ask": ask,
                             "close_bid": bid, "close_ask": ask,
-                            "ticks": 1
+                            "ticks": 1,
+                            "timestamp": ts_ms
                         }
 
                     else:
@@ -1281,7 +1284,8 @@ async def run_candle_aggregator_per_instrument():
                                 "high_bid": bid, "low_bid": bid,
                                 "high_ask": ask, "low_ask": ask,
                                 "close_bid": bid, "close_ask": ask,
-                                "ticks": 1
+                                "ticks": 1,
+                                "timestamp": ts_ms
                             }
                         else:
                             # Laufende Candle aktualisieren
@@ -1293,6 +1297,7 @@ async def run_candle_aggregator_per_instrument():
                             b["low_ask"] = min(b["low_ask"], ask)
                             b["close_ask"] = ask
                             b["ticks"] += 1
+                            b["timestamp"] = ts_ms
 
                         # Während der Minute Trend- und Chartdaten aktualisieren
                         on_candle_forming(epic, st["bar"], ts_ms)
