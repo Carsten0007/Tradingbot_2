@@ -305,15 +305,25 @@ class ChartManager:
             else:
                 lines[key].set_data([], [])
         
-        # 🔹 Einzelwerte als horizontale Linien über das aktuelle Fenster
-        for key in ["sl", "tp", "ts", "be"]:
-            val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+        # 🔹 TS (Trailing) als Zeitreihe im Fenster
+        ts_pts = [
+            (d["time"], d.get("ts"))
+            for d in dq
+            if isinstance(d.get("ts"), (int, float)) and (min_time <= d["time"] <= max_time)
+        ]
+        if ts_pts:
+            t_ts, v_ts = zip(*ts_pts)
+            lines["ts"].set_data(t_ts, v_ts)
+        else:
+            lines["ts"].set_data([], [])
+
+        # 🔹 SL/TP/BE weiterhin als horizontale Linien über das aktuelle Fenster
+        for key in ["sl", "tp", "be"]:
+            val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
             if val is not None:
                 lines[key].set_data([min_time, max_time], [val, val])
             else:
                 lines[key].set_data([], [])
-
-
 
         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
         ax = lines["ax"]
