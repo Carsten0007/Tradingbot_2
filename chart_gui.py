@@ -44,6 +44,9 @@ class ChartManager:
             try:
                 from tradeingbot import to_local_dt
                 now = to_local_dt(ts_ms)
+                skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
+                if abs(skew) > 1:
+                    print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
             except ImportError:
                 # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
                 now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)
@@ -267,16 +270,20 @@ class ChartManager:
         if not valid_points:
             return  # kein einziger Tick → nichts zeichnen
 
-        t_vals, b_vals, a_vals = zip(*valid_points)
-        lines["bid"].set_data(t_vals, b_vals)
-        lines["ask"].set_data(t_vals, a_vals)
-
-        # --- Rolling window (immer self.window Sekunden) ---
-        max_time = t_vals[-1]
+        # Zeitfenster zuerst bestimmen (am letzten gültigen Tick)
+        last_t = valid_points[-1][0]
+        max_time = last_t
         min_time = max_time - dt.timedelta(seconds=self.window)
         ax = self.lines[epic]["ax"]
         ax.set_xlim(min_time, max_time)
 
+        # ur Punkte im Fenster zeichnen
+        window_pts = [(t, b, a) for (t, b, a) in valid_points if (min_time <= t <= max_time)]
+        if not window_pts:
+            return
+        t_vals, b_vals, a_vals = zip(*window_pts)
+        lines["bid"].set_data(t_vals, b_vals)
+        lines["ask"].set_data(t_vals, a_vals)
 
         # 📏 Dynamische Initial-Skalierung
         ax = self.lines[epic]["ax"]

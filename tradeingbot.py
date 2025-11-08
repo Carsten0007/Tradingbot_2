@@ -67,11 +67,11 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.01018   # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.01010   # Trailing Stop
+STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT       = 0.01001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+TAKE_PROFIT_PCT           = 0.0050  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
@@ -1056,7 +1056,13 @@ async def run_candle_aggregator_per_instrument():
 
     while True:  # Endlosschleife mit Reconnect & Token-Refresh
         if not CST or not XSEC:
-            CST, XSEC = capital_login()
+            try:
+                CST, XSEC = capital_login()
+                invalid_token_streak = 0  # Reset nach erfolgreichem Login
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Login fehlgeschlagen: {e}\n⏳ {RECONNECT_DELAY}s warten und erneut versuchen …")
+                await asyncio.sleep(RECONNECT_DELAY)
+                continue  # zurück an den Schleifenanfang, ohne zu crashen
 
         ws_url = f"{BASE_STREAM}?CST={CST}&X-SECURITY-TOKEN={XSEC}"
         subscribe = {
