@@ -887,8 +887,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     spread_pct = spread / entry
     price = bid if direction == "BUY" else ask
 
-    print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
-
+    # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
+    ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
+    if 900 <= (ts_for_log % 1000) <= 999:
+        print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
 
     # === LONG ===
     if direction == "BUY":
