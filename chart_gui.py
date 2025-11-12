@@ -45,8 +45,9 @@ class ChartManager:
                 from tradeingbot import to_local_dt
                 now = to_local_dt(ts_ms)
                 skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
-                if abs(skew) > 1:
+                if abs(skew) > 1 and 980 <= (ts_ms % 1000) <= 999:
                     print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
+
             except ImportError:
                 # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
                 now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)

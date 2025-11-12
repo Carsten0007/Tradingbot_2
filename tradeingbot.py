@@ -20,6 +20,7 @@ init(autoreset=True)
 # Ringpuffer für Tick-Daten (mid)
 TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
+_last_dirlog_sec = {}
 
 # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
 API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
@@ -744,11 +745,11 @@ def evaluate_trend_signal(epic, closes, spread):
     # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
     # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
     if ma_fast > ma_slow and momentum_now < momentum_prev * 1.0: # 0.1
-        print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
+        # print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
     if ma_fast < ma_slow and momentum_now > momentum_prev * 1.0: # 0.1
-        print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
+        # print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
     # ======================================================
@@ -889,8 +890,11 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
 
     # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
     ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
-    if 900 <= (ts_for_log % 1000) <= 999:
+    now_sec = int(time.time())
+    
+    if _last_dirlog_sec.get(epic) != now_sec:
         print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
+        _last_dirlog_sec[epic] = now_sec
 
     # === LONG ===
     if direction == "BUY":
@@ -1201,6 +1205,9 @@ async def run_candle_aggregator_per_instrument():
                         bid   = float(p["bid"])
                         ask   = float(p["ofr"])
                         ts_ms = int(p["timestamp"])
+                        if 980 <= (ts_ms % 1000) <= 999:
+                            print(f"[SK1 tick] ts_ms={ts_ms}  local={to_local_dt(ts_ms).strftime('%H:%M:%S.%f')[:-3]}")
+
                     except Exception:
                         continue
 
@@ -1270,6 +1277,10 @@ async def run_candle_aggregator_per_instrument():
                         # Candle schließen
                         bar_to_close = st["bar"].copy()          # ← Kopie, keine spätere Nebenwirkung
                         bar_to_close.setdefault("timestamp", ts_ms)
+
+                        if 980 <= (ts_ms % 1000) <= 999:
+                            print(f"[SK3 close] minute={st['minute'].strftime('%H:%M:%S')}  use_ts_ms={ts_ms}  bar_ts={bar_to_close.get('timestamp')}")
+
                         on_candle_close(epic, bar_to_close)
 
                         # Neue Minute starten
