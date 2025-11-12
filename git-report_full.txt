@@ -1,0 +1,1811 @@
+COMMIT 853426bb2f3c2d695837d5d2c32ceddd7d47641e
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 00:57:21 +0200
+Refs: 
+
+20251025 00:57
+
+erster aufschlag, funktioniert, aber wert/0 flip
+fix folgt
+---
+ chart_gui.py | 26 +++++++++++++-------------
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 6785fe7..14d63c2 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -143,27 +143,27 @@ class ChartManager:
+             self.last_trade_state[epic] = trade_open
+ 
+             # -------------------------------------------------------
+-            #   Diagrammtitel dynamisch anpassen (Trade-Zustand, farbig)
++            #   Diagrammtitel dynamisch anpassen (Trade-Zustand + Balance)
+             # -------------------------------------------------------
+-            if pos and isinstance(pos, dict):
+-                direction = pos.get("direction")
+-                if direction == "BUY":
+-                    title = "LONG Trade offen"
+-                    color = "green"
+-                elif direction == "SELL":
+-                    title = "SHORT Trade offen"
+-                    color = "red"
++            if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
++                bid_now = dq[-1].get("bid")
++                ask_now = dq[-1].get("ask")
++
++                if pos["direction"] == "BUY" and bid_now:
++                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else 0.3)
++                elif pos["direction"] == "SELL" and ask_now:
++                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else 0.3)
+                 else:
+-                    title = "Aktuell kein Trade"
+-                    color = "black"
++                    balance_val = 0.0
++
++                color = "green" if balance_val > 0 else "red" if balance_val < 0 else "black"
++                title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} €"
+             else:
+                 title = "Aktuell kein Trade"
+                 color = "black"
+ 
+             ax.set_title(title, color=color)
+ 
+-
+-
+             # 🔁 Refresh
+             self._refresh_chart(epic)
+             plt.draw()
+
+COMMIT 6626dcf4a158d4894c61da0e7a3dce3271e47e2d
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 01:34:58 +0200
+Refs: 
+
+20251025 01:35
+
+ws fix
+---
+ chart_gui.py | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 14d63c2..985f373 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -145,16 +145,18 @@ class ChartManager:
+             # -------------------------------------------------------
+             #   Diagrammtitel dynamisch anpassen (Trade-Zustand + Balance)
+             # -------------------------------------------------------
++            balance_val = None
+             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
+                 bid_now = dq[-1].get("bid")
+                 ask_now = dq[-1].get("ask")
+ 
+-                if pos["direction"] == "BUY" and bid_now:
++                if pos["direction"] == "BUY" and bid_now is not None:
+                     balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else 0.3)
+-                elif pos["direction"] == "SELL" and ask_now:
++                elif pos["direction"] == "SELL" and ask_now is not None:
+                     balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else 0.3)
+-                else:
+-                    balance_val = 0.0
++                
++                if balance_val is None:
++                    return
+ 
+                 color = "green" if balance_val > 0 else "red" if balance_val < 0 else "black"
+                 title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} €"
+
+COMMIT 186100213e4c25ae559b8db73d8740a7b4cba484
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 19:06:18 +0200
+Refs:  (refs/heads/20251024_23_24_balance_in_diagrammtitel)
+
+OK 20251025 19:06
+
+stand soweit ok
+---
+ tradeingbot.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 2932ccd..14058bd 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -593,7 +593,7 @@ def evaluate_trend_signal(epic, closes, spread):
+ 
+     if distance > max_distance:
+         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
+-        if 950 <= now_ms <= 999:
++        if 980 <= now_ms <= 999:
+             print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
+                 f"(dist={distance:.5f}) → kein Entry")
+         return f"HOLD (überdehnt, {ma_type})"
+
+COMMIT 00c04f334f5371cef9b6e38d670da3e9d2dda861
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 19:43:39 +0200
+Refs:  (refs/heads/modifizierter_trade_filter_20251023_0119)
+
+OK 20251025 19:43
+
+trade filter eingebaut
+balance in diagramm
+testlauf 20h ohne befund
+---
+ tradeingbot.py | 73 ++++++++++++++++++++++++++++++++++++++++++++--------------
+ 1 file changed, 56 insertions(+), 17 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 14058bd..ba0e8c6 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -553,41 +553,61 @@ def hma(values, period: int):
+ 
+ 
+ # ==============================
+-# TRADE SIGNAL mit EMA UND WMA / HMA
++#  TRADE-SIGNAL mit EMA / HMA
+ # ==============================
++# Bewertet Trendrichtung und Signalstärke anhand gleitender Durchschnitte.
++# Kombination aus EMA- und HMA-Varianten für unterschiedliche Glättung.
++# Enthält Filter zur Vermeidung überdehnter oder träger Trends.
+ 
+ def evaluate_trend_signal(epic, closes, spread):
++    # ------------------------------
++    #  1️⃣ Berechnung der gleitenden Mittelwerte
+     # Immer beide berechnen
++    # ------------------------------
+     ema_fast = ema(closes, EMA_FAST)
+     ema_slow = ema(closes, EMA_SLOW)
+     hma_fast = hma(closes, EMA_FAST)
+     hma_slow = hma(closes, EMA_SLOW)
+ 
+-    # Je nach Schalter verwenden wir EMA oder HMA
++    # Auswahl, ob HMA oder EMA aktiv verwendet wird
+     if USE_HMA:
+         ma_fast, ma_slow, ma_type = hma_fast, hma_slow, "HMA"
+     else:
+         ma_fast, ma_slow, ma_type = ema_fast, ema_slow, "EMA"
+ 
++    # Wenn noch nicht genug Kerzen vorhanden → kein valides Signal
+     if ma_fast is None or ma_slow is None:
+-        #return f"HOLD (zu wenig Daten, {len(closes)}/{EMA_SLOW} Kerzen)"
+         return f"HOLD (zu wenig Daten: {len(closes)}/{EMA_SLOW})"
+ 
+     last_close = closes[-1]
+     prev_close = closes[-2]
+ 
+-    # # Debug-Ausgabe für Vergleich
+-    # print(
+-    #     f"[{epic}] EMA({EMA_FAST}/{EMA_SLOW})={ema_fast:.2f}/{ema_slow:.2f} "
+-    #     f"HMA({EMA_FAST}/{EMA_SLOW})={hma_fast:.2f}/{hma_slow:.2f} "
+-    #     f"Close={last_close:.2f}"
+-    # )
+-
+     # ======================================================
+-    #  🧭 ENTRY-FILTER: Vermeide späte oder schwache Signale
++    #  2️⃣ ENTRY-FILTER: Vermeide späte oder schwache Signale
+     # ======================================================
+ 
+-    # Preis-vs-MA-Filter (verhindert Entries am Wellenkamm)
++    # --- Preis-vs-MA-Filter: Verhindert Einstiege bei überdehnten Bewegungen / wenn der Kurs zu weit vom MA entfernt ist
++    #
++    # Ziel:
++    # Kein Entry, wenn der aktuelle Kurs (last_close) zu weit
++    # vom kurzfristigen gleitenden Durchschnitt (ma_fast) entfernt liegt.
++    #
++    # Hintergrund:
++    # - Wenn der Kurs stark über oder unter dem MA liegt,
++    #   befindet sich der Markt meist am "Wellenkamm" oder "Boden".
++    # - In solchen Phasen kommt es häufig zu kurzfristigen Gegenbewegungen (Pullbacks).
++    # - Der Filter soll daher nur Einstiege erlauben,
++    #   solange der Kurs sich noch in vertretbarer Nähe zum Trendmittelwert bewegt.
++    #
++    # Berechnung:
++    # distance = absolute Abweichung zwischen Kurs und MA
++    # max_distance = zulässige maximale Abweichung, proportional zur aktuellen Spanne (spread)
++    #
++    # Ist die Abweichung größer als max_distance → kein Einstieg.
++    #
++    # Hinweis:
++    # Der Faktor ist aktuell extrem hoch (100), um den Filter faktisch zu deaktivieren.
++    # Realistisch wäre z. B. 1.0–2.0 für einen wirksamen Schutz vor Spät-Entries.
+     distance = abs(last_close - ma_fast)
+     max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
+ 
+@@ -598,12 +618,30 @@ def evaluate_trend_signal(epic, closes, spread):
+                 f"(dist={distance:.5f}) → kein Entry")
+         return f"HOLD (überdehnt, {ma_type})"
+ 
+-    # Momentum-Filter (prüft Beschleunigung)
+-    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor
++    # --- Momentum-Filter: prüft Beschleunigung der Kursbewegung
++    # Wenn der gleitende Durchschnitt (MA) einen Trend anzeigt,
++    # soll die aktuelle Preisbewegung (momentum_now) diesen Trend bestätigen.
++    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor / wenn aktuelle Bewegung zunimmt
+     # → Annäherung über Differenz zweier aufeinanderfolgender Closes
++
++    # momentum_now  = letzte Preisänderung (aktueller Impuls)
++    # momentum_prev = vorherige Preisänderung (vorheriger Impuls)
+     momentum_now = last_close - prev_close
+     momentum_prev = prev_close - closes[-3]
+ 
++    # Idee:
++    # - Bei steigendem Trend (ma_fast > ma_slow):
++    #     momentum_now sollte >= momentum_prev sein.
++    #     Wenn momentum_now deutlich kleiner ist, flacht der Trend ab → kein Entry.
++    #
++    # - Bei fallendem Trend (ma_fast < ma_slow):
++    #     momentum_now sollte <= momentum_prev sein.
++    #     Wenn momentum_now deutlich größer ist, verliert der Abwärtstrend an Stärke → kein Entry.
++    #
++    # Die Faktoren (hier *-100 / *100) sind testweise extrem groß gewählt,
++    # um den Filter faktisch zu deaktivieren (ursprünglich 0.1 = 10 % Schwächungstoleranz).
++    # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
++    # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
+     if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
+         print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
+         return f"HOLD (Momentum schwach, {ma_type})"
+@@ -613,19 +651,20 @@ def evaluate_trend_signal(epic, closes, spread):
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+     # ======================================================
+-    #  🧭 ENTRY-FILTER ENDE
++    #  3️⃣ SIGNAL-LOGIK (Kaufsignal / Verkaufssignal)
+     # ======================================================
+ 
+-
+     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
++    # Trend-Logik: Fast > Slow → Aufwärtstrend → BUY
+     if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
+         return f"BEREIT: BUY ✅ ({ma_type})"
++    # Umgekehrt: Fast < Slow → Abwärtstrend → SELL
+     elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
+         return f"BEREIT: SELL ⛔ ({ma_type})"
++    # Kein klares Signal
+     else:
+         return f"UNSICHER ⚪ ({ma_type})"
+ 
+-
+ # ==============================
+ # Hilfsfunktionen für robustes Open/Close
+ # ==============================
+
+COMMIT 44e233cdca5139960ed6c0e9564cc3420cc28dcc
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 20:54:38 +0200
+Refs: 
+
+20251025 20:54
+
+zwischenstand
+trailing stop brems logik parametrierbar
+---
+ tradeingbot.py | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index ba0e8c6..6d59cfc 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -24,7 +24,6 @@ API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
+ USERNAME = os.getenv("CAPITAL_USERNAME") or "carsten.schoettke@gmx.de"
+ PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy&"
+ 
+-
+ # Basis-URLs LIVE
+ #BASE_REST   = "https://api-capital.backend-capital.com"
+ #BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
+@@ -67,6 +66,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # ==============================
+ STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+ TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
++TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+ TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+ BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+ BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+@@ -74,7 +74,6 @@ BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf
+ # funzt ~
+ # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
+ 
+-
+ def to_local_dt(ms_since_epoch: int) -> datetime:
+     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
+ 
+@@ -614,7 +613,7 @@ def evaluate_trend_signal(epic, closes, spread):
+     if distance > max_distance:
+         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
+         if 980 <= now_ms <= 999:
+-            print(f"⚠️ [{epic}] Preis zu weit vom {ma_type} entfernt "
++            print(f"[{epic}] Preis zu weit vom {ma_type} entfernt "
+                 f"(dist={distance:.5f}) → kein Entry")
+         return f"HOLD (überdehnt, {ma_type})"
+ 
+@@ -643,11 +642,11 @@ def evaluate_trend_signal(epic, closes, spread):
+     # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
+     # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
+     if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
+-        print(f"⚠️ [{epic}] LONG-Momentum schwächer → kein BUY")
++        print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+     if ma_fast < ma_slow and momentum_now > momentum_prev * 100: # 0.1
+-        print(f"⚠️ [{epic}] SHORT-Momentum schwächer → kein SELL")
++        print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+     # ======================================================
+@@ -810,7 +809,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+             if stop is None:
+                 pos["trailing_stop"] = new_trailing
+                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
+-            elif new_trailing > stop + (spread * 0.5):
++            elif new_trailing > stop + (spread * TRAILING_SET_CALM_DOWN):
+                 pos["trailing_stop"] = new_trailing
+                 print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
+ 
+@@ -852,7 +851,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+             if stop is None:
+                 pos["trailing_stop"] = new_trailing
+                 print(f"🔧 [{epic}] Initialer Trailing Stop gesetzt: {new_trailing:.2f}")
+-            elif new_trailing < stop - (spread * 0.5):
++            elif new_trailing < stop - (spread * TRAILING_SET_CALM_DOWN):
+                 pos["trailing_stop"] = new_trailing
+                 print(f"🔧 [{epic}] Trailing Stop nachgezogen auf {new_trailing:.2f}")
+ 
+
+COMMIT fe0dcce827a1afd47886cef9894fd6aecd2f78bc
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-25 21:56:11 +0200
+Refs: 
+
+20251025 21:56
+
+testweise XRP
+---
+ tradeingbot.py | 28 +++++++++++++++++++---------
+ 1 file changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 6d59cfc..d67e646 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -35,8 +35,8 @@ BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
+ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
+ 
+ # Instrumente
+-#INSTRUMENTS = ["BTCUSD", "ETHUSD"]
+-INSTRUMENTS = ["ETHUSD"]
++#INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
++INSTRUMENTS = ["XRPUSD"]
+ 
+ # Lokalzeit
+ LOCAL_TZ = ZoneInfo("Europe/Berlin")
+@@ -64,12 +64,21 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # ==============================
+ # Risk Management Parameter
+ # ==============================
+-STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+-TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+-TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+-BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+-BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++# ETHBTC
++# STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
++# TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
++# TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++# TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
++# BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++# BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++# XRPUSD
++STOP_LOSS_PCT           = 0.008   # fester Stop-Loss
++TRAILING_STOP_PCT       = 0.004   # Trailing Stop
++TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++TAKE_PROFIT_PCT         = 0.0020  # z. B. 0,2% Gewinnziel
++BREAK_EVEN_STOP_PCT     = 0.0008 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++BREAK_EVEN_BUFFER_PCT   = 0.0008 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++
+ 
+ # funzt ~
+ # EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
+@@ -127,7 +136,8 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
+     #   f"raw_size={risk_amount / margin_per_unit}, size_rounded={round(size, 3)}, "
+     #   f"minDealSize={mkt_data.get('minDealSize')}, lotSize={mkt_data.get('lotSize')}")
+ 
+-    size = 0.3 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
++    # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€
++    size = 400 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
+ 
+ 
+
+COMMIT 7b3c61868714bd7fdfb11abe6e3e974862cb11fb
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-26 02:11:07 +0200
+Refs: 
+
+20251026 02:11
+
+test mit BTC
+---
+ chart_gui.py   |  7 ++++---
+ tradeingbot.py | 39 ++++++++++++++++++++++++---------------
+ 2 files changed, 28 insertions(+), 18 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 985f373..b762ad0 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -146,14 +146,15 @@ class ChartManager:
+             #   Diagrammtitel dynamisch anpassen (Trade-Zustand + Balance)
+             # -------------------------------------------------------
+             balance_val = None
++
+             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
+                 bid_now = dq[-1].get("bid")
+                 ask_now = dq[-1].get("ask")
+-
++                from tradeingbot import MANUAL_TRADE_SIZE # lokaler import des hart gesetzten order volumens
+                 if pos["direction"] == "BUY" and bid_now is not None:
+-                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else 0.3)
++                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
+                 elif pos["direction"] == "SELL" and ask_now is not None:
+-                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else 0.3)
++                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
+                 
+                 if balance_val is None:
+                     return
+diff --git a/tradeingbot.py b/tradeingbot.py
+index d67e646..e449725 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -36,7 +36,7 @@ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
+ 
+ # Instrumente
+ #INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
+-INSTRUMENTS = ["XRPUSD"]
++INSTRUMENTS = ["BTCUSD"]
+ 
+ # Lokalzeit
+ LOCAL_TZ = ZoneInfo("Europe/Berlin")
+@@ -58,26 +58,35 @@ EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+ EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+ 
+ TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
+-
++MANUAL_TRADE_SIZE = 0.01 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
+ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ 
+ # ==============================
+ # Risk Management Parameter
+ # ==============================
+ # ETHBTC
+-# STOP_LOSS_PCT      = 0.0018   # fester Stop-Loss
+-# TRAILING_STOP_PCT  = 0.0009   # Trailing Stop
+-# TRAILING_SET_CALM_DOWN = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-# TAKE_PROFIT_PCT = 0.0020  # z. B. 0,2% Gewinnziel
+-# BREAK_EVEN_STOP_PCT = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+-# BREAK_EVEN_BUFFER_PCT = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++# STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
++# TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
++# TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++# TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
++# BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++# BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++
+ # XRPUSD
+-STOP_LOSS_PCT           = 0.008   # fester Stop-Loss
+-TRAILING_STOP_PCT       = 0.004   # Trailing Stop
+-TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-TAKE_PROFIT_PCT         = 0.0020  # z. B. 0,2% Gewinnziel
+-BREAK_EVEN_STOP_PCT     = 0.0008 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+-BREAK_EVEN_BUFFER_PCT   = 0.0008 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++# STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
++# TRAILING_STOP_PCT       = 0.007   # Trailing Stop
++# TRAILING_SET_CALM_DOWN  = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++# TAKE_PROFIT_PCT         = 0.015  # z. B. 0,2% Gewinnziel
++# BREAK_EVEN_STOP_PCT     = 0.0015 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++# BREAK_EVEN_BUFFER_PCT   = 0.0015 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++
++# BTCUSD
++STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
++TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
++TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++TAKE_PROFIT_PCT         = 0.0020    # z. B. 0,2% Gewinnziel
++BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
++BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ 
+ # funzt ~
+@@ -137,7 +146,7 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
+     #   f"minDealSize={mkt_data.get('minDealSize')}, lotSize={mkt_data.get('lotSize')}")
+ 
+     # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€
+-    size = 400 # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
++    size = MANUAL_TRADE_SIZE # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
+ 
+ 
+
+COMMIT d3a8e62e85553eff27ead5ab53f29bfa8dd9394a
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-31 20:13:04 +0100
+Refs: 
+
+20251031 20:13
+
+absprung in time fix
+---
+ tradeingbot.py | 49 ++++++++++++++++++++++++++++++-------------------
+ 1 file changed, 30 insertions(+), 19 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index e449725..7511a0f 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -36,7 +36,7 @@ ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
+ 
+ # Instrumente
+ #INSTRUMENTS = ["BTCUSD", "ETHUSD", "XRPUSD"]
+-INSTRUMENTS = ["BTCUSD"]
++INSTRUMENTS = ["ETHUSD"]
+ 
+ # Lokalzeit
+ LOCAL_TZ = ZoneInfo("Europe/Berlin")
+@@ -54,23 +54,23 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
+ # STRATEGIE-EINSTELLUNGEN
+ # ==============================
+ 
+-EMA_FAST = 2 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+-EMA_SLOW = 5 #21  # lange EMA-Periode (z. B. 21, 30, 50)
++EMA_FAST = 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
++EMA_SLOW = 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+ 
+ TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
+-MANUAL_TRADE_SIZE = 0.01 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
++MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
+ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ 
+ # ==============================
+ # Risk Management Parameter
+ # ==============================
+ # ETHBTC
+-# STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+-# TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
+-# TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-# TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
+-# BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+-# BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
++TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
++TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++TAKE_PROFIT_PCT           = 0.0040  # z. B. 0,2% Gewinnziel
++BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ # XRPUSD
+ # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
+@@ -81,12 +81,12 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # BREAK_EVEN_BUFFER_PCT   = 0.0015 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ # BTCUSD
+-STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
+-TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
+-TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-TAKE_PROFIT_PCT         = 0.0020    # z. B. 0,2% Gewinnziel
+-BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
+-BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
++# STOP_LOSS_PCT           = 0.0015    # fester Stop-Loss
++# TRAILING_STOP_PCT       = 0.0007    # Trailing Stop
++# TRAILING_SET_CALM_DOWN  = 0.0       # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
++# TAKE_PROFIT_PCT         = 0.0030    # z. B. 0,2% Gewinnziel
++# BREAK_EVEN_STOP_PCT     = 0.0001    # sicherung der Null-Schwelle / kein Verlust mehr möglich
++# BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ 
+ # funzt ~
+@@ -626,8 +626,15 @@ def evaluate_trend_signal(epic, closes, spread):
+     # Hinweis:
+     # Der Faktor ist aktuell extrem hoch (100), um den Filter faktisch zu deaktivieren.
+     # Realistisch wäre z. B. 1.0–2.0 für einen wirksamen Schutz vor Spät-Entries.
++    # distance misst, wie weit der Kurs vom gleitenden Durchschnitt entfernt ist.
++    # max_distance ist die erlaubte maximale Abweichung.
++    # Wenn der Kurs weiter weg ist als max_distance, wird kein Trade gemacht („überdehnt“).
++    # 1.0	sehr vorsichtig	nur Entries nah am MA erlaubt
++    # 2.0	moderat	kleine Überdehnungen noch erlaubt
++    # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
++    # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
+     distance = abs(last_close - ma_fast)
+-    max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
++    max_distance = spread * 30  # 8 Faktor anpassbar (1.0–2.0 typisch)
+ 
+     if distance > max_distance:
+         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
+@@ -660,11 +667,15 @@ def evaluate_trend_signal(epic, closes, spread):
+     # um den Filter faktisch zu deaktivieren (ursprünglich 0.1 = 10 % Schwächungstoleranz).
+     # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
+     # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
+-    if ma_fast > ma_slow and momentum_now < momentum_prev * -100: # 0.1
++    # 0.05	Momentum_now < 5 % von Momentum_prev → sehr empfindlich	kaum Trades, sehr vorsichtig
++    # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
++    # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
++    # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
++    if ma_fast > ma_slow and momentum_now < momentum_prev * 3.0: # 0.1
+         print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+-    if ma_fast < ma_slow and momentum_now > momentum_prev * 100: # 0.1
++    if ma_fast < ma_slow and momentum_now > momentum_prev * 3.0: # 0.1
+         print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+
+COMMIT 513dfbaad4b235dc8539d3360da94ab1ca0e6c10
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-31 20:40:38 +0100
+Refs:  (refs/heads/20251031_time_fix)
+
+20251031 20:41
+
+fixes implementiert
+---
+ chart_gui.py   | 15 ++++++++++-----
+ tradeingbot.py | 18 ++++++++++++++----
+ 2 files changed, 24 insertions(+), 9 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index b762ad0..4f2b325 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -7,6 +7,10 @@ from collections import deque
+ from matplotlib.dates import DateFormatter
+ from zoneinfo import ZoneInfo
+ 
++# Einheitliche TZ & Matplotlib-Epoch setzen
++LOCAL_TZ = ZoneInfo("Europe/Berlin")
++mdates.set_epoch('1970-01-01T00:00:00+00:00')
++
+ class ChartManager:
+     def __init__(self, window_size_sec=300):
+         self.window = window_size_sec
+@@ -41,8 +45,9 @@ class ChartManager:
+                 from tradeingbot import to_local_dt
+                 now = to_local_dt(ts_ms)
+             except ImportError:
+-                now = dt.datetime.fromtimestamp(ts_ms / 1000.0)
+-          
++                # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
++                now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)
++
+             # Bid / Ask übernehmen
+             # 🧩 Sicherstellen, dass Bid/Ask immer float sind
+             bid = bar.get("bid")
+@@ -187,10 +192,10 @@ class ChartManager:
+         ax.set_title(f"Live Chart – {epic}")
+         ax.set_xlabel("Zeit")
+         ax.set_ylabel("Preis")
+-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
++        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=LOCAL_TZ))
+ 
+         # 🧭 Initial-Skalierung – 5 Minuten Fenster und Dummy-Y-Range
+-        now = dt.datetime.now()
++        now = dt.datetime.now(LOCAL_TZ)
+         ax.set_xlim(now - dt.timedelta(seconds=self.window), now)
+ 
+         # Temporärer Y-Bereich, damit nichts flackert (z. B. ±1 % um 4000)
+@@ -348,7 +353,7 @@ class ChartManager:
+             return  # bereits gesetzt
+ 
+         # Zeitpunkt des letzten gültigen Datensatzes
+-        t = self.data[epic][-1]["time"] if self.data.get(epic) else dt.datetime.now()
++        t = self.data[epic][-1]["time"] if self.data.get(epic) else dt.datetime.now(LOCAL_TZ)
+ 
+         # Marker + Linie setzen
+         self.lines[epic]["entry_marker"].set_data([t], [price])
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 7511a0f..5681096 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -95,6 +95,9 @@ BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE
+ def to_local_dt(ms_since_epoch: int) -> datetime:
+     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
+ 
++def utc_now_ms() -> int:
++    return int(datetime.now(timezone.utc).timestamp() * 1000)
++
+ # Candle-Historie für EMA-Berechnung
+ candle_history = {epic: deque(maxlen=200) for epic in INSTRUMENTS}
+ 
+@@ -330,7 +333,7 @@ def on_candle_forming(epic, bar, ts_ms):
+ 
+     # Zeit konvertieren
+     local_dt = to_local_dt(ts_ms)
+-    local_time = local_dt.strftime("%d.%m.%Y %H:%M:%S")
++    local_time = local_dt.strftime("%d.%m.%Y %H:%M:%S %Z")
+ 
+     # Nur letzten Tick pro Sekunde ausgeben
+     sec_key = local_dt.replace(microsecond=0)
+@@ -394,13 +397,14 @@ def on_candle_forming(epic, bar, ts_ms):
+ 
+     if mid_open and mid_close:
+         print(
+-            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
++            f"[{epic}] {local_time} - "
+             f"O:{mid_open:.2f} C:{mid_close:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
+             f"- sl={sl_str} ts={ts_str} tp={tp_str}"
+         )
++
+     else:
+         print(
+-            f"[{epic}] {datetime.fromtimestamp(ts_ms/1000).strftime('%d.%m.%Y %H:%M:%S')} - "
++            f"[{epic}] {local_time} - "
+             f"O:{open_ask:.2f}/{open_bid:.2f}  C:{close_ask:.2f}/{close_bid:.2f} "
+             f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
+         )
+@@ -494,7 +498,7 @@ def on_candle_close(epic, bar):
+         # === 6️⃣ Chart-Update mit neuen Bid/Ask-Werten ===
+         charts.update(
+             epic,
+-            bar.get("timestamp") or int(time.time() * 1000),
++            bar.get("timestamp") or int(datetime.now(timezone.utc).timestamp() * 1000),
+             {
+                 "open_bid": bar.get("open_bid"),
+                 "open_ask": bar.get("open_ask"),
+@@ -1254,6 +1258,12 @@ async def run_candle_aggregator_per_instrument():
+ 
+ if __name__ == "__main__":
+     try:
++        print("Startup sanity:")
++        print("  Local now  :", datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M:%S %Z"))
++        print("  UTC now    :", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC"))
++        test_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
++        print("  to_local_dt:", to_local_dt(test_ms).strftime("%d.%m.%Y %H:%M:%S %Z"))
++
+         asyncio.run(run_candle_aggregator_per_instrument())
+     except KeyboardInterrupt:
+         print("\n🛑 Manuell abgebrochen (Ctrl+C erkannt)")
+
+COMMIT b637904fdf7eaea4651908fc61bc84842aae37ed
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-10-31 21:49:31 +0100
+Refs: 
+
+20251031 21:49
+
+patch 1-5 eingebaut für live saldo berechnung
+---
+ chart_gui.py   | 25 +++++++++++++-------
+ tradeingbot.py | 75 ++++++++++++++++++++++++++++++++++++++++++++++++----------
+ 2 files changed, 78 insertions(+), 22 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 4f2b325..81625fb 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -68,7 +68,7 @@ class ChartManager:
+                 "close": bar.get("close"),
+ 
+                 # Entry bleibt persistent, wenn kein neuer Wert kommt
+-                "entry": bar.get("entry") or pos.get("entry_price") or last.get("entry"),
++                "entry": pos.get("entry_price") or last.get("entry"),
+ 
+                 # Stop-Loss
+                 "sl": float(bar.get("sl") or pos.get("stop_loss") or last.get("sl") or 0)
+@@ -153,14 +153,21 @@ class ChartManager:
+             balance_val = None
+ 
+             if pos and isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price"):
+-                bid_now = dq[-1].get("bid")
+-                ask_now = dq[-1].get("ask")
+-                from tradeingbot import MANUAL_TRADE_SIZE # lokaler import des hart gesetzten order volumens
+-                if pos["direction"] == "BUY" and bid_now is not None:
+-                    balance_val = (bid_now - pos["entry_price"]) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
+-                elif pos["direction"] == "SELL" and ask_now is not None:
+-                    balance_val = (pos["entry_price"] - ask_now) * (pos["size"] if pos.get("size") else MANUAL_TRADE_SIZE)
+-                
++                # 1) Primär: Live-PnL aus dem Tickpfad verwenden
++                balance_val = pos.get("unrealized_pnl")
++
++                # 2) Fallback (nur falls noch nicht gesetzt): alte Berechnung
++                if balance_val is None:
++                    bid_now = dq[-1].get("bid")
++                    ask_now = dq[-1].get("ask")
++                    from tradeingbot import MANUAL_TRADE_SIZE
++                    size = pos.get("size") if pos.get("size") else MANUAL_TRADE_SIZE
++
++                    if pos["direction"] == "BUY" and bid_now is not None:
++                        balance_val = (bid_now - pos["entry_price"]) * size
++                    elif pos["direction"] == "SELL" and ask_now is not None:
++                        balance_val = (pos["entry_price"] - ask_now) * size
++
+                 if balance_val is None:
+                     return
+ 
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 5681096..1ffe310 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -12,6 +12,8 @@ from collections import deque
+ from colorama import Fore, Style, init
+ from chart_gui import ChartManager
+ 
++# Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
++
+ charts = ChartManager(window_size_sec=300)
+ init(autoreset=True)
+ 
+@@ -260,13 +262,41 @@ def open_position(CST, XSEC, epic, direction, size, entry_price, retry=True):
+                         deal_id = conf_data.get("dealId")
+ 
+                     if deal_id:
+-                        open_positions[epic] = {
+-                            "direction": direction,
+-                            "dealId": deal_id,
+-                            "entry_price": entry_price,
+-                            "trailing_stop": None
+-                        }
+-                        print(f"🆕 [{epic}] Open erfolgreich → {direction} (dealId={deal_id}, entry={entry_price})")
++                        # 1) Optional: Fill-Preis aus Confirm bevorzugen (falls vorhanden)
++                        fill_price = None
++                        try:
++                            fill_price = conf_data.get("level") or conf_data.get("price")
++                            if not fill_price:
++                                affected = conf_data.get("affectedDeals")
++                                if isinstance(affected, list) and affected:
++                                    fill_price = affected[0].get("level") or affected[0].get("price")
++                            fill_price = float(fill_price) if fill_price is not None else None
++                        except Exception:
++                            fill_price = None
++
++                        # 2) Entry write-once: Confirm-Fill > übergebener Seitenpreis
++                        final_entry = fill_price if isinstance(fill_price, (int, float)) else entry_price
++
++                        # 3) Write-once speichern (falls schon vorhanden, nicht überschreiben)
++                        prev = open_positions.get(epic)
++                        if not isinstance(prev, dict) or prev.get("entry_price") is None:
++                            open_positions[epic] = {
++                                "direction": direction,
++                                "dealId": deal_id,
++                                "entry_price": final_entry,
++                                "size": size,                 # <-- reale Stückzahl mitschreiben
++                                "trailing_stop": None
++                            }
++                        else:
++                            # nur Metadaten aktualisieren, Entry/Size unangetastet lassen
++                            open_positions[epic].update({
++                                "direction": direction,
++                                "dealId": deal_id
++                            })
++
++                        print(f"🆕 [{epic}] Open erfolgreich → {direction} "
++                            f"(dealId={open_positions[epic].get('dealId')}, entry={open_positions[epic].get('entry_price')})")
++
+                     else:
+                         print(f"⚠️ Keine dealId aus Confirm extrahiert für {epic}")
+         except Exception as e:
+@@ -513,7 +543,6 @@ def on_candle_close(epic, bar):
+                 "tp": tp,
+                 "ts": ts,
+                 "be": be,
+-                "entry": entry,
+             },
+             open_positions.get(epic, {}),
+             ema_fast=ema(closes, EMA_FAST),
+@@ -638,7 +667,7 @@ def evaluate_trend_signal(epic, closes, spread):
+     # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
+     # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
+     distance = abs(last_close - ma_fast)
+-    max_distance = spread * 30  # 8 Faktor anpassbar (1.0–2.0 typisch)
++    max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
+ 
+     if distance > max_distance:
+         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
+@@ -675,11 +704,11 @@ def evaluate_trend_signal(epic, closes, spread):
+     # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
+     # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
+     # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
+-    if ma_fast > ma_slow and momentum_now < momentum_prev * 3.0: # 0.1
++    if ma_fast > ma_slow and momentum_now < momentum_prev * 1.0: # 0.1
+         print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+-    if ma_fast < ma_slow and momentum_now > momentum_prev * 3.0: # 0.1
++    if ma_fast < ma_slow and momentum_now > momentum_prev * 1.0: # 0.1
+         print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+@@ -1117,13 +1146,33 @@ async def run_candle_aggregator_per_instrument():
+                     if not epic or epic not in states:
+                         continue
+ 
++                    # --- Parse Tick-Felder robust ---
+                     try:
+-                        bid = float(p["bid"])
+-                        ask = float(p["ofr"])
++                        bid   = float(p["bid"])
++                        ask   = float(p["ofr"])
+                         ts_ms = int(p["timestamp"])
+                     except Exception:
+                         continue
+ 
++                    # --- Live-PnL nur im Tickpfad berechnen ---
++                    pos = open_positions.get(epic)
++                    if isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price") is not None:
++                        entry = float(pos["entry_price"])
++                        qty   = float(pos.get("size") or MANUAL_TRADE_SIZE)
++
++                        if pos["direction"] == "BUY":
++                            mark = bid              # LONG → Bewertung am Bid
++                            pnl  = (mark - entry) * qty
++                        else:  # SELL
++                            mark = ask              # SHORT → Bewertung am Ask
++                            pnl  = (entry - mark) * qty
++
++                        # In-place aktualisieren: Chart liest nur noch diese Felder
++                        pos["mark_price"]     = mark
++                        pos["unrealized_pnl"] = pnl
++                        pos["last_tick_ms"]   = ts_ms
++
++
+                     mid_price = (bid + ask) / 2.0
+                     spread = ask - bid
+                     minute_key = local_minute_floor(ts_ms)
+
+COMMIT 003cd627b2af71d643c3d400235fada3099b0cf0
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-01 20:53:42 +0100
+Refs:  (refs/heads/20251031_saldo_fix, refs/heads/20251025_19_56_optimierung)
+
+20251101 20:53
+
+saldo ist in $
+€ zu komplex erstmal ...
+---
+ chart_gui.py   | 18 +++++++++---------
+ tradeingbot.py |  2 +-
+ 2 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 81625fb..eeb03a9 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -172,7 +172,7 @@ class ChartManager:
+                     return
+ 
+                 color = "green" if balance_val > 0 else "red" if balance_val < 0 else "black"
+-                title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} €"
++                title = f"{'LONG' if pos['direction']=='BUY' else 'SHORT'} Trade offen | Δ {balance_val:+.2f} $"
+             else:
+                 title = "Aktuell kein Trade"
+                 color = "black"
+@@ -213,17 +213,17 @@ class ChartManager:
+ 
+         # Linien vorbereiten – deutlicher & konsistenter
+         lines = {
+-            "bid": ax.plot([], [], label="Bid", color="lightblue", linewidth=0.8, alpha=0.8)[0],
+-            "ask": ax.plot([], [], label="Ask", color="lightcoral", linewidth=0.8, alpha=0.8)[0],
++            "bid": ax.plot([], [], label="Bid", color="blue", linewidth=0.8, alpha=0.8)[0],
++            "ask": ax.plot([], [], label="Ask", color="red", linewidth=0.8, alpha=0.8)[0],
+             "entry": ax.plot([], [], label="Entry", color="gray", linestyle="--")[0],
+-            "sl": ax.plot([], [], label="Stop-Loss", color="red", linestyle=":", linewidth=1.1)[0],
++            "sl": ax.plot([], [], label="Stop-Loss", color="darkorange", linestyle=":", linewidth=1.1)[0],
+             "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
+             "tp": ax.plot([], [], label="Take-Profit", color="green", linestyle=":", linewidth=1.1)[0],
+-            "be": ax.plot([], [], label="Break-Even", color="purple", linestyle="-.", linewidth=1.1)[0],
+-            "ema_fast": ax.plot([], [], label="EMA Fast", color="cyan", linewidth=0.5, alpha=0.6)[0],
+-            "ema_slow": ax.plot([], [], label="EMA Slow", color="magenta", linewidth=0.5, alpha=0.6)[0],
+-            "hma_fast": ax.plot([], [], label="HMA Fast", color="deepskyblue", linewidth=0.5, alpha=0.6)[0],
+-            "hma_slow": ax.plot([], [], label="HMA Slow", color="violet", linewidth=0.5, alpha=0.6)[0],
++            "be": ax.plot([], [], label="Break-Even", color="brown", linestyle="-.", linewidth=1.1)[0],
++            "ema_fast": ax.plot([], [], label="EMA Fast", color="lightgrey", linewidth=0.5, alpha=0.6)[0],
++            "ema_slow": ax.plot([], [], label="EMA Slow", color="darkgrey", linewidth=0.5, alpha=0.6)[0],
++            "hma_fast": ax.plot([], [], label="HMA Fast", color="lightgreen", linewidth=0.5, alpha=0.6)[0],
++            "hma_slow": ax.plot([], [], label="HMA Slow", color="darkgreen", linewidth=0.5, alpha=0.6)[0],
+         }
+ 
+         # Marker für Entry
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 1ffe310..4d4b5c5 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -66,7 +66,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # ==============================
+ # Risk Management Parameter
+ # ==============================
+-# ETHBTC
++# ETHUSD/ETHEUR
+ STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+ TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
+ TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+
+COMMIT f5f21885213ac054700731022abd2a0cf455172a
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-02 00:02:19 +0100
+Refs: 
+
+20251102 00:02
+
+ringpuffer für mid eingefügt
+---
+ chart_gui.py   |  8 ++++----
+ tradeingbot.py | 11 ++++++++---
+ 2 files changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index eeb03a9..2e009a7 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -213,8 +213,8 @@ class ChartManager:
+ 
+         # Linien vorbereiten – deutlicher & konsistenter
+         lines = {
+-            "bid": ax.plot([], [], label="Bid", color="blue", linewidth=0.8, alpha=0.8)[0],
+-            "ask": ax.plot([], [], label="Ask", color="red", linewidth=0.8, alpha=0.8)[0],
++            "bid": ax.plot([], [], label="Bid", color="blue", linewidth=0.5, alpha=0.9)[0],
++            "ask": ax.plot([], [], label="Ask", color="red", linewidth=0.5, alpha=0.9)[0],
+             "entry": ax.plot([], [], label="Entry", color="gray", linestyle="--")[0],
+             "sl": ax.plot([], [], label="Stop-Loss", color="darkorange", linestyle=":", linewidth=1.1)[0],
+             "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
+@@ -222,8 +222,8 @@ class ChartManager:
+             "be": ax.plot([], [], label="Break-Even", color="brown", linestyle="-.", linewidth=1.1)[0],
+             "ema_fast": ax.plot([], [], label="EMA Fast", color="lightgrey", linewidth=0.5, alpha=0.6)[0],
+             "ema_slow": ax.plot([], [], label="EMA Slow", color="darkgrey", linewidth=0.5, alpha=0.6)[0],
+-            "hma_fast": ax.plot([], [], label="HMA Fast", color="lightgreen", linewidth=0.5, alpha=0.6)[0],
+-            "hma_slow": ax.plot([], [], label="HMA Slow", color="darkgreen", linewidth=0.5, alpha=0.6)[0],
++            "hma_fast": ax.plot([], [], label="HMA Fast", color="lightgreen", linewidth=0.9, alpha=0.6)[0],
++            "hma_slow": ax.plot([], [], label="HMA Slow", color="darkgreen", linewidth=0.9, alpha=0.6)[0],
+         }
+ 
+         # Marker für Entry
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 4d4b5c5..39ba10b 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -17,9 +17,9 @@ from chart_gui import ChartManager
+ charts = ChartManager(window_size_sec=300)
+ init(autoreset=True)
+ 
+-# ==============================
+-# SETTINGS (entspricht Zelle A)
+-# ==============================
++# Ringpuffer für Tick-Daten (mid)
++TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
++TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
+ 
+ # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
+ API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
+@@ -350,6 +350,11 @@ def on_candle_forming(epic, bar, ts_ms):
+     mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+     closes = list(candle_history[epic]) + [mid_price]
+ 
++    # Ringpuffer füttern (Mid über close_bid/close_ask des aktuellen Ticks)
++    if mid_price is not None:
++        dq = TICK_RING.setdefault(epic, deque(maxlen=TICK_RING_MAXLEN))
++        dq.append((int(ts_ms), float(mid_price)))
++
+     # 🔧 Spread auf Basis echter Marktseiten (Ask–Bid)
+     high_ask = bar.get("high_ask")
+     low_bid = bar.get("low_bid")
+
+COMMIT b9a950c1b465ff5d40c961d3df9951e09584853b
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-02 00:23:13 +0100
+Refs: 
+
+20251102 00:22
+
+horizontalitizitäts methode eingefügt + debug output
+---
+ tradeingbot.py | 60 ++++++++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 52 insertions(+), 8 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 39ba10b..7ecb686 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -154,10 +154,6 @@ def calc_trade_size(CST, XSEC, epic, risk_pct=TRADE_RISK_PCT):
+     size = MANUAL_TRADE_SIZE # test mit hartem wert, da im demo konto anscheinend kein kontostand übermittelt wird ...
+     return round(size, 3)  # 3 Nachkommastellen, also 0.001 genau
+ 
+-
+-
+-
+-
+ # ==============================
+ # LOGIN (entspricht Zelle B)
+ # ==============================
+@@ -336,8 +332,6 @@ def close_position(CST, XSEC, epic, deal_id=None, retry=True):
+     return r
+ 
+ 
+-
+-
+ # ==============================
+ # SIGNAL-LOGIK (Zelle D)
+ # ==============================
+@@ -393,7 +387,6 @@ def on_candle_forming(epic, bar, ts_ms):
+         instant = "SELL ⛔"
+     else:
+         instant = "NEUTRAL ⚪"
+-
+   
+     # Offene Position abrufen für terminal ausgabe
+     pos = open_positions.get(epic)
+@@ -444,7 +437,6 @@ def on_candle_forming(epic, bar, ts_ms):
+             f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
+         )
+ 
+-
+     # Hook🧩 Chart aktualisieren – nur gültige Marktseitendaten übergeben
+     charts.update(
+     epic,
+@@ -465,6 +457,55 @@ def on_candle_forming(epic, bar, ts_ms):
+     trend=trend   # 🧭 Trend-String mitgeben für Pfeil im Titel
+ )
+ 
++# ==============================
++# Horizontalität berechnen (0-1)
++# ==============================
++
++def horizontality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
++    """
++    Horizontalitäts-Faktor ∈ [0, 1] für ein Instrument.
++      0.0 = stark trendend/vertikal
++      1.0 = seitwärts/horizontal
++
++    Grundlage: TICK_RING[epic] = deque[(ts_ms:int, mid:float)] (globaler Ringpuffer).
++    Verwendet nur Ticks der letzten `window_sec` Sekunden. Gibt 0.5 zurück,
++    wenn (noch) zu wenig Ticks vorhanden sind.
++    """
++    dq = TICK_RING.get(epic)
++    if not dq:
++        return 0.5
++
++    # Zeitfenster bestimmen am neuesten Tick (keine Systemzeit nötig)
++    newest_ts = dq[-1][0]
++    cut_ts = newest_ts - int(window_sec * 1000)
++
++    # Effizient: von hinten sammeln bis cut erreicht, deque NICHT verändern
++    seg_prices_rev = []
++    for ts, mid in reversed(dq):
++        if ts < cut_ts:
++            break
++        seg_prices_rev.append(mid)
++
++    if len(seg_prices_rev) < min_samples:
++        return 0.5
++
++    prices = list(reversed(seg_prices_rev))
++
++    # Trend/Chop-Heuristik: vertikal = Netto / Summe der Absolutbewegungen
++    diffs = [prices[i] - prices[i-1] for i in range(1, len(prices))]
++    chop = sum(abs(d) for d in diffs)
++    if chop <= 0:
++        return 1.0  # komplett flach → maximale Horizontalität
++    trend = abs(sum(diffs))
++
++    # 1 - (Trendanteil) = Horizontalität
++    h = 1.0 - (trend / chop)
++    # clamp
++    return 0.0 if h < 0.0 else (1.0 if h > 1.0 else h)
++
++
++
++
+ def on_candle_close(epic, bar):
+     # Wird bei Abschluss jeder 1m-Kerze aufgerufen.
+ 
+@@ -853,6 +894,9 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+     spread_pct = spread / entry
+     price = bid if direction == "BUY" else ask
+ 
++    print(f"🧭 [{epic}] horizontality(180s) = {horizontality_factor(epic):.2f}")
++
++
+     # === LONG ===
+     if direction == "BUY":
+         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
+
+COMMIT 652b60aabac1caa372d769580e6cfde5ccb77161
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-02 01:16:47 +0100
+Refs: 
+
+20251102 01:16
+
+änderung logik, vertikal = 1, horizontal = 0
+---
+ tradeingbot.py | 33 +++++++++++++--------------------
+ 1 file changed, 13 insertions(+), 20 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 7ecb686..52d5565 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -461,48 +461,41 @@ def on_candle_forming(epic, bar, ts_ms):
+ # Horizontalität berechnen (0-1)
+ # ==============================
+ 
+-def horizontality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
+-    """
+-    Horizontalitäts-Faktor ∈ [0, 1] für ein Instrument.
+-      0.0 = stark trendend/vertikal
+-      1.0 = seitwärts/horizontal
+-
+-    Grundlage: TICK_RING[epic] = deque[(ts_ms:int, mid:float)] (globaler Ringpuffer).
+-    Verwendet nur Ticks der letzten `window_sec` Sekunden. Gibt 0.5 zurück,
+-    wenn (noch) zu wenig Ticks vorhanden sind.
+-    """
++def verticality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
++    # Vertikalitäts-Faktor ∈ [0, 1] für ein Instrument.
++    #   0.0 = horizontal / seitwärts
++    #   1.0 = starker Trend
+     dq = TICK_RING.get(epic)
+     if not dq:
+         return 0.5
+ 
+-    # Zeitfenster bestimmen am neuesten Tick (keine Systemzeit nötig)
+     newest_ts = dq[-1][0]
+     cut_ts = newest_ts - int(window_sec * 1000)
+ 
+-    # Effizient: von hinten sammeln bis cut erreicht, deque NICHT verändern
++    # Von hinten sammeln, None-Werte filtern, deque NICHT verändern
+     seg_prices_rev = []
+     for ts, mid in reversed(dq):
+         if ts < cut_ts:
+             break
+-        seg_prices_rev.append(mid)
++        if mid is not None:
++            seg_prices_rev.append(float(mid))
+ 
+     if len(seg_prices_rev) < min_samples:
+         return 0.5
+ 
+     prices = list(reversed(seg_prices_rev))
+ 
+-    # Trend/Chop-Heuristik: vertikal = Netto / Summe der Absolutbewegungen
++    # Trend/Chop-Heuristik
+     diffs = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+     chop = sum(abs(d) for d in diffs)
+     if chop <= 0:
+-        return 1.0  # komplett flach → maximale Horizontalität
++        return 0.0  # komplett flach → kein Trend
++
+     trend = abs(sum(diffs))
++    v = trend / chop  # 0..1
+ 
+-    # 1 - (Trendanteil) = Horizontalität
+-    h = 1.0 - (trend / chop)
+     # clamp
+-    return 0.0 if h < 0.0 else (1.0 if h > 1.0 else h)
+-
++    return 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
+ 
+ 
+ 
+@@ -894,7 +887,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+     spread_pct = spread / entry
+     price = bid if direction == "BUY" else ask
+ 
+-    print(f"🧭 [{epic}] horizontality(180s) = {horizontality_factor(epic):.2f}")
++    print(f"🧭 [{epic}] verticality(60s) = {verticality_factor(epic):.2f}")
+ 
+ 
+     # === LONG ===
+
+COMMIT 2076d455a9154fdacc4930874f2e260b04bd5956
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-07 19:45:42 +0100
+Refs: 
+
+20251107 19:45
+
+zwischenstand vor x fix 3.0
+---
+ tradeingbot.py | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 52d5565..085231b 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -68,9 +68,9 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # ==============================
+ # ETHUSD/ETHEUR
+ STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+-TRAILING_STOP_PCT         = 0.0009   # Trailing Stop
++TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
+ TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-TAKE_PROFIT_PCT           = 0.0040  # z. B. 0,2% Gewinnziel
++TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
+ BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+ BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+@@ -461,7 +461,7 @@ def on_candle_forming(epic, bar, ts_ms):
+ # Horizontalität berechnen (0-1)
+ # ==============================
+ 
+-def verticality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
++def directionality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
+     # Vertikalitäts-Faktor ∈ [0, 1] für ein Instrument.
+     #   0.0 = horizontal / seitwärts
+     #   1.0 = starker Trend
+@@ -887,7 +887,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+     spread_pct = spread / entry
+     price = bid if direction == "BUY" else ask
+ 
+-    print(f"🧭 [{epic}] verticality(60s) = {verticality_factor(epic):.2f}")
++    print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
+ 
+ 
+     # === LONG ===
+
+COMMIT be3c675a1445d998c938e7b130042091a4f53cbe
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-07 21:39:17 +0100
+Refs: 
+
+20251107 21:39
+
+zwischenstand / chaos
+---
+ chart_gui.py   | 76 ++++++++++++++++++++++++++++------------------------------
+ tradeingbot.py | 21 +++++++++-------
+ 2 files changed, 49 insertions(+), 48 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 2e009a7..c284f84 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -244,6 +244,7 @@ class ChartManager:
+         lines = self.lines[epic]
+         times = [d["time"] for d in dq]
+ 
++
+         # 🚫 Falls kein Trade offen → BE-, SL-, TP-, TS-Linien löschen
+         if not any(d.get("direction") for d in dq if d.get("direction")):
+             for key in ["sl", "tp", "ts", "be"]:
+@@ -270,35 +271,43 @@ class ChartManager:
+         lines["bid"].set_data(t_vals, b_vals)
+         lines["ask"].set_data(t_vals, a_vals)
+ 
++        # --- Rolling window (immer self.window Sekunden) ---
++        max_time = t_vals[-1]
++        min_time = max_time - dt.timedelta(seconds=self.window)
++        ax = self.lines[epic]["ax"]
++        ax.set_xlim(min_time, max_time)
++
++
+         # 📏 Dynamische Initial-Skalierung
+         ax = self.lines[epic]["ax"]
+         # X-Achse: lokale Zeit anzeigen (z. B. Europe/Berlin)
+         ax.xaxis.set_major_formatter(
+             DateFormatter("%H:%M:%S", tz=ZoneInfo("Europe/Berlin"))
+         )
+-        mid = (b_vals[-1] + a_vals[-1]) / 2
+-        ax.set_ylim(mid - 15, mid + 15)
+-
+-
++        
+         # 📈 EMA/HMA-Linien mit Sanity-Check (nur wenn genügend gültige Werte)
+         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
+-            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
+-            if len(vals) >= 3:
+-                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
+-                lines[key].set_data(valid_times, vals)
++            pts = [
++                (d["time"], d.get(key))
++                for d in dq
++                if isinstance(d.get(key), (int, float)) and (min_time <= d["time"] <= max_time)
++            ]
++            if len(pts) >= 3:
++                t_ma, v_ma = zip(*pts)
++                lines[key].set_data(t_ma, v_ma)
+             else:
+                 lines[key].set_data([], [])
+         
+-        # 🔹 Einzelwerte (Stop, TP, Trailing, Break-Even)
++        # 🔹 Einzelwerte als horizontale Linien über das aktuelle Fenster
+         for key in ["sl", "tp", "ts", "be"]:
+-            vals = [d[key] for d in dq if isinstance(d.get(key), (int, float))]
+-            if len(vals) >= 1:
+-                valid_times = [d["time"] for d in dq if isinstance(d.get(key), (int, float))]
+-                lines[key].set_data(valid_times, vals)
++            val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
++            if val is not None:
++                lines[key].set_data([min_time, max_time], [val, val])
+             else:
+                 lines[key].set_data([], [])
+ 
+ 
++
+         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
+         ax = lines["ax"]
+ 
+@@ -308,41 +317,28 @@ class ChartManager:
+             # min_time = max_time - dt.timedelta(seconds=self.window)
+             # ax.set_xlim(min_time, max_time)
+ 
+-            # 2️⃣ Y-Achse: automatisch auf alle relevanten Werte inkl. Stops skalieren (+5 % Puffer)
+-            values = []
+-            values += [v for v in (bids + asks) if v is not None]
++            # 2️⃣ Y-Achse: automatisch auf relevante Werte im Fenster skalieren (+5 % Puffer)
++            values = list(b_vals) + list(a_vals)
++
+             for key in ["sl", "tp", "ts", "be", "entry"]:
+-                vals = [d.get(key) for d in dq if isinstance(d.get(key), (int, float))]
+-                values += vals
++                val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
++                if val is not None:
++                    values.append(val)
+ 
+             if values:
+                 ymin, ymax = min(values), max(values)
+                 padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
+                 ax.set_ylim(ymin - padding, ymax + padding)
+ 
+-        # 🟩 Entry-Linie: horizontal über gesamte Zeitachse (fix gegen Verschwinden)
+-            entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
+-            if entry_vals:
+-                entry_price = entry_vals[-1]
+-                try:
+-                    x_min, x_max = ax.get_xlim()
+-                    if x_min == x_max:
+-                        x_min, x_max = times[0], times[-1]
+-                except Exception:
+-                    x_min, x_max = times[0], times[-1]
+-
+-                # Horizontale Linie über gesamte X-Achse
+-                lines["entry"].set_data([x_min, x_max], [entry_price, entry_price])
+-            else:
+-                # Nur leeren, wenn kein aktiver Trade – sonst Linie halten
+-                if not any(d.get("direction") for d in dq):
+-                    lines["entry"].set_data([], [])
+-
+-        # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
+-        max_time = times[-1]
+-        min_time = max_time - dt.timedelta(seconds=self.window)
+-        ax.set_xlim(min_time, max_time)
+ 
++        # 🟩 Entry-Linie über das aktuelle Fenster
++        entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
++        if entry_vals:
++            entry_price = entry_vals[-1]
++            lines["entry"].set_data([min_time, max_time], [entry_price, entry_price])
++        else:
++            lines["entry"].set_data([], [])
++        
+         # 🔁 Refresh
+         lines["fig"].canvas.draw_idle()
+         lines["fig"].canvas.flush_events()
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 085231b..59adc98 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -56,8 +56,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
+ # STRATEGIE-EINSTELLUNGEN
+ # ==============================
+ 
+-EMA_FAST = 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+-EMA_SLOW = 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
++EMA_FAST = 2 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
++EMA_SLOW = 5 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+ 
+ TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
+ MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
+@@ -67,11 +67,11 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # Risk Management Parameter
+ # ==============================
+ # ETHUSD/ETHEUR
+-STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
+-TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
++STOP_LOSS_PCT             = 0.01018   # fester Stop-Loss
++TRAILING_STOP_PCT         = 0.01010   # Trailing Stop
+ TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+ TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
+-BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++BREAK_EVEN_STOP_PCT       = 0.01001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+ BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ # XRPUSD
+@@ -1260,7 +1260,9 @@ async def run_candle_aggregator_per_instrument():
+                         )
+ 
+                         # Candle schließen
+-                        on_candle_close(epic, bar)
++                        bar_to_close = st["bar"].copy()          # ← Kopie, keine spätere Nebenwirkung
++                        bar_to_close.setdefault("timestamp", ts_ms)
++                        on_candle_close(epic, bar_to_close)
+ 
+                         # Neue Minute starten
+                         st["minute"] = minute_key
+@@ -1269,7 +1271,8 @@ async def run_candle_aggregator_per_instrument():
+                             "high_bid": bid, "low_bid": bid,
+                             "high_ask": ask, "low_ask": ask,
+                             "close_bid": bid, "close_ask": ask,
+-                            "ticks": 1
++                            "ticks": 1,
++                            "timestamp": ts_ms
+                         }
+ 
+                     else:
+@@ -1281,7 +1284,8 @@ async def run_candle_aggregator_per_instrument():
+                                 "high_bid": bid, "low_bid": bid,
+                                 "high_ask": ask, "low_ask": ask,
+                                 "close_bid": bid, "close_ask": ask,
+-                                "ticks": 1
++                                "ticks": 1,
++                                "timestamp": ts_ms
+                             }
+                         else:
+                             # Laufende Candle aktualisieren
+@@ -1293,6 +1297,7 @@ async def run_candle_aggregator_per_instrument():
+                             b["low_ask"] = min(b["low_ask"], ask)
+                             b["close_ask"] = ask
+                             b["ticks"] += 1
++                            b["timestamp"] = ts_ms
+ 
+                         # Während der Minute Trend- und Chartdaten aktualisieren
+                         on_candle_forming(epic, st["bar"], ts_ms)
+
+COMMIT 4c067499f15b704c1df00d49ae8e43db93eaabf0
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-08 19:57:16 +0100
+Refs: 
+
+OK 20251108 19:56
+
+Login per try abgesichert
+---
+ chart_gui.py   | 19 +++++++++++++------
+ tradeingbot.py | 16 +++++++++++-----
+ 2 files changed, 24 insertions(+), 11 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index c284f84..588ae09 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -44,6 +44,9 @@ class ChartManager:
+             try:
+                 from tradeingbot import to_local_dt
+                 now = to_local_dt(ts_ms)
++                skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
++                if abs(skew) > 1:
++                    print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
+             except ImportError:
+                 # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
+                 now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)
+@@ -267,16 +270,20 @@ class ChartManager:
+         if not valid_points:
+             return  # kein einziger Tick → nichts zeichnen
+ 
+-        t_vals, b_vals, a_vals = zip(*valid_points)
+-        lines["bid"].set_data(t_vals, b_vals)
+-        lines["ask"].set_data(t_vals, a_vals)
+-
+-        # --- Rolling window (immer self.window Sekunden) ---
+-        max_time = t_vals[-1]
++        # Zeitfenster zuerst bestimmen (am letzten gültigen Tick)
++        last_t = valid_points[-1][0]
++        max_time = last_t
+         min_time = max_time - dt.timedelta(seconds=self.window)
+         ax = self.lines[epic]["ax"]
+         ax.set_xlim(min_time, max_time)
+ 
++        # ur Punkte im Fenster zeichnen
++        window_pts = [(t, b, a) for (t, b, a) in valid_points if (min_time <= t <= max_time)]
++        if not window_pts:
++            return
++        t_vals, b_vals, a_vals = zip(*window_pts)
++        lines["bid"].set_data(t_vals, b_vals)
++        lines["ask"].set_data(t_vals, a_vals)
+ 
+         # 📏 Dynamische Initial-Skalierung
+         ax = self.lines[epic]["ax"]
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 59adc98..548ecdd 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -67,11 +67,11 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
+ # Risk Management Parameter
+ # ==============================
+ # ETHUSD/ETHEUR
+-STOP_LOSS_PCT             = 0.01018   # fester Stop-Loss
+-TRAILING_STOP_PCT         = 0.01010   # Trailing Stop
++STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
++TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
+ TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+-TAKE_PROFIT_PCT           = 0.0150  # z. B. 0,2% Gewinnziel
+-BREAK_EVEN_STOP_PCT       = 0.01001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
++TAKE_PROFIT_PCT           = 0.0050  # z. B. 0,2% Gewinnziel
++BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+ BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+ 
+ # XRPUSD
+@@ -1056,7 +1056,13 @@ async def run_candle_aggregator_per_instrument():
+ 
+     while True:  # Endlosschleife mit Reconnect & Token-Refresh
+         if not CST or not XSEC:
+-            CST, XSEC = capital_login()
++            try:
++                CST, XSEC = capital_login()
++                invalid_token_streak = 0  # Reset nach erfolgreichem Login
++            except requests.exceptions.RequestException as e:
++                print(f"❌ Login fehlgeschlagen: {e}\n⏳ {RECONNECT_DELAY}s warten und erneut versuchen …")
++                await asyncio.sleep(RECONNECT_DELAY)
++                continue  # zurück an den Schleifenanfang, ohne zu crashen
+ 
+         ws_url = f"{BASE_STREAM}?CST={CST}&X-SECURITY-TOKEN={XSEC}"
+         subscribe = {
+
+COMMIT 07907eb16035a61fdc009f2f5c5742b8760fa34c
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-08 20:38:05 +0100
+Refs: 
+
+20251108 20:38
+
+TS fix
+---
+ chart_gui.py | 20 +++++++++++++++-----
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index 588ae09..ea48ad5 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -305,16 +305,26 @@ class ChartManager:
+             else:
+                 lines[key].set_data([], [])
+         
+-        # 🔹 Einzelwerte als horizontale Linien über das aktuelle Fenster
+-        for key in ["sl", "tp", "ts", "be"]:
+-            val = next((d[key] for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
++        # 🔹 TS (Trailing) als Zeitreihe im Fenster
++        ts_pts = [
++            (d["time"], d.get("ts"))
++            for d in dq
++            if isinstance(d.get("ts"), (int, float)) and (min_time <= d["time"] <= max_time)
++        ]
++        if ts_pts:
++            t_ts, v_ts = zip(*ts_pts)
++            lines["ts"].set_data(t_ts, v_ts)
++        else:
++            lines["ts"].set_data([], [])
++
++        # 🔹 SL/TP/BE weiterhin als horizontale Linien über das aktuelle Fenster
++        for key in ["sl", "tp", "be"]:
++            val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+             if val is not None:
+                 lines[key].set_data([min_time, max_time], [val, val])
+             else:
+                 lines[key].set_data([], [])
+ 
+-
+-
+         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
+         ax = lines["ax"]
+ 
+
+COMMIT 5aca544469ed3f2dd29534c6df10c385d7468d2b
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-08 22:30:11 +0100
+Refs:  (refs/heads/main, refs/heads/20251101_trailing_dynamisch_anpassen_bei_horizontalitizät)
+
+ABSCHLUSS / OK, 20251108 22:29
+
+bot soweit ok und brauchbar
+GuV noch unbefriedigend, aber ursächlich aufgrund parametereinstellungen
+---
+ tradeingbot.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 548ecdd..52b8beb 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -887,8 +887,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+     spread_pct = spread / entry
+     price = bid if direction == "BUY" else ask
+ 
+-    print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
+-
++    # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
++    ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
++    if 900 <= (ts_for_log % 1000) <= 999:
++        print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
+ 
+     # === LONG ===
+     if direction == "BUY":
+
+COMMIT bfc79f3a6da7b4d47138b94ec037c77f3618ff32
+Author: Carsten0007 <carsten.schoettke@gmx.de>
+Date: 2025-11-12 18:24:54 +0100
+Refs:  (HEAD -> refs/heads/lag_fix_20251108_2318)
+
+20251112 18:25
+
+nun doch wieder skew gefrickel
+---
+ chart_gui.py   |  3 ++-
+ tradeingbot.py | 17 ++++++++++++++---
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/chart_gui.py b/chart_gui.py
+index ea48ad5..aac2c3b 100644
+--- a/chart_gui.py
++++ b/chart_gui.py
+@@ -45,8 +45,9 @@ class ChartManager:
+                 from tradeingbot import to_local_dt
+                 now = to_local_dt(ts_ms)
+                 skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
+-                if abs(skew) > 1:
++                if abs(skew) > 1 and 980 <= (ts_ms % 1000) <= 999:
+                     print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
++
+             except ImportError:
+                 # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
+                 now = dt.datetime.fromtimestamp(ts_ms / 1000.0, tz=LOCAL_TZ)
+diff --git a/tradeingbot.py b/tradeingbot.py
+index 52b8beb..5d347bd 100644
+--- a/tradeingbot.py
++++ b/tradeingbot.py
+@@ -20,6 +20,7 @@ init(autoreset=True)
+ # Ringpuffer für Tick-Daten (mid)
+ TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
+ TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
++_last_dirlog_sec = {}
+ 
+ # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
+ API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
+@@ -744,11 +745,11 @@ def evaluate_trend_signal(epic, closes, spread):
+     # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
+     # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
+     if ma_fast > ma_slow and momentum_now < momentum_prev * 1.0: # 0.1
+-        print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
++        # print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+     if ma_fast < ma_slow and momentum_now > momentum_prev * 1.0: # 0.1
+-        print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
++        # print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
+         return f"HOLD (Momentum schwach, {ma_type})"
+ 
+     # ======================================================
+@@ -889,8 +890,11 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
+ 
+     # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
+     ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
+-    if 900 <= (ts_for_log % 1000) <= 999:
++    now_sec = int(time.time())
++    
++    if _last_dirlog_sec.get(epic) != now_sec:
+         print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
++        _last_dirlog_sec[epic] = now_sec
+ 
+     # === LONG ===
+     if direction == "BUY":
+@@ -1201,6 +1205,9 @@ async def run_candle_aggregator_per_instrument():
+                         bid   = float(p["bid"])
+                         ask   = float(p["ofr"])
+                         ts_ms = int(p["timestamp"])
++                        if 980 <= (ts_ms % 1000) <= 999:
++                            print(f"[SK1 tick] ts_ms={ts_ms}  local={to_local_dt(ts_ms).strftime('%H:%M:%S.%f')[:-3]}")
++
+                     except Exception:
+                         continue
+ 
+@@ -1270,6 +1277,10 @@ async def run_candle_aggregator_per_instrument():
+                         # Candle schließen
+                         bar_to_close = st["bar"].copy()          # ← Kopie, keine spätere Nebenwirkung
+                         bar_to_close.setdefault("timestamp", ts_ms)
++
++                        if 980 <= (ts_ms % 1000) <= 999:
++                            print(f"[SK3 close] minute={st['minute'].strftime('%H:%M:%S')}  use_ts_ms={ts_ms}  bar_ts={bar_to_close.get('timestamp')}")
++
+                         on_candle_close(epic, bar_to_close)
+ 
+                         # Neue Minute starten

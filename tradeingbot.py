@@ -1255,7 +1255,7 @@ async def run_candle_aggregator_per_instrument():
                                 "ticks": st["bar"]["ticks"],
                             },
                             open_positions.get(epic, {})
-)
+                        )
 
                     # 🕒 Candle-Handling mit echten Marktseiten (Bid/Ask)
                     if st["minute"] is not None and minute_key > st["minute"] and st["bar"] is not None:
