@@ -14,6 +14,9 @@ mdates.set_epoch('1970-01-01T00:00:00+00:00')
 class ChartManager:
     def __init__(self, window_size_sec=300):
         self.window = window_size_sec
+        self.tz = ZoneInfo("Europe/Berlin")
+        self.draw_throttle_ms = 200   # Ziel: ~5 FPS pro Instrument
+        self._last_draw_ms = {}       # epic -> letzter Draw-Timestamp in ms
         self.data = {}      # {epic: deque([...])}
         self.lines = {}     # {epic: dict(matplotlib handles)}
         self.lock = threading.Lock()
@@ -183,10 +186,16 @@ class ChartManager:
 
             ax.set_title(title, color=color)
 
+            # 🔇 Throttle: nicht bei jedem Tick rendern
+            last = self._last_draw_ms.get(epic)
+            if last is not None and (ts_ms - last) < self.draw_throttle_ms:
+                return
+            self._last_draw_ms[epic] = ts_ms
+
             # 🔁 Refresh
             self._refresh_chart(epic)
-            plt.draw()
-            self.lines[epic]["fig"].canvas.flush_events()
+            # (Kein zusätzlicher Draw/Flush hier – _refresh_chart erledigt das bereits)
+
 
 
 
@@ -203,7 +212,8 @@ class ChartManager:
         ax.set_title(f"Live Chart – {epic}")
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=LOCAL_TZ))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S", tz=self.tz))
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator())
 
         # 🧭 Initial-Skalierung – 5 Minuten Fenster und Dummy-Y-Range
         now = dt.datetime.now(LOCAL_TZ)
@@ -289,9 +299,9 @@ class ChartManager:
         # 📏 Dynamische Initial-Skalierung
         ax = self.lines[epic]["ax"]
         # X-Achse: lokale Zeit anzeigen (z. B. Europe/Berlin)
-        ax.xaxis.set_major_formatter(
-            DateFormatter("%H:%M:%S", tz=ZoneInfo("Europe/Berlin"))
-        )
+        # ax.xaxis.set_major_formatter(
+        #     DateFormatter("%H:%M:%S", tz=ZoneInfo("Europe/Berlin"))
+        # )
         
         # 📈 EMA/HMA-Linien mit Sanity-Check (nur wenn genügend gültige Werte)
         for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow"]:
