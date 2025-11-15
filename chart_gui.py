@@ -141,7 +141,6 @@ class ChartManager:
                     self.lines[epic][key].set_data([], [])
                 self.lines[epic]["entry_marker"].set_data([], [])
                 self.lines[epic]["entry"].set_data([], [])
-                self.lines[epic]["fig"].canvas.draw_idle()
 
                 # Stelle sicher, dass direction zurückgesetzt wird
                 for d in dq:
@@ -426,5 +425,4 @@ class ChartManager:
         self.last_trade_state[epic] = False
 
         print(f"[Chart] Trade beendet → Linien für {epic} entfernt, Bid/Ask bleiben erhalten")
-        self.lines[epic]["fig"].canvas.draw_idle()
 
