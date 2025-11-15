@@ -268,11 +268,21 @@ class ChartManager:
         # 🔧 Immer letzten bekannten Wert übernehmen (statt leere Stellen)
         bids, asks = [], []
         last_bid = last_ask = None
+        # ⬇️ Neu: letzte Levels im selben Loop merken (kein zweiter dq-Scan)
+        last_sl = last_tp = last_ts = last_be = last_entry = None
+
         for d in dq:
             if d.get("bid") is not None:
                 last_bid = d["bid"]
             if d.get("ask") is not None:
                 last_ask = d["ask"]
+            # Level-Cache aktualisieren
+            v = d.get("sl");    last_sl    = v if isinstance(v, (int, float)) else last_sl
+            v = d.get("tp");    last_tp    = v if isinstance(v, (int, float)) else last_tp
+            v = d.get("ts");    last_ts    = v if isinstance(v, (int, float)) else last_ts
+            v = d.get("be");    last_be    = v if isinstance(v, (int, float)) else last_be
+            v = d.get("entry"); last_entry = v if isinstance(v, (int, float)) else last_entry
+
             bids.append(last_bid)
             asks.append(last_ask)
 
@@ -328,13 +338,13 @@ class ChartManager:
         else:
             lines["ts"].set_data([], [])
 
-        # 🔹 SL/TP/BE weiterhin als horizontale Linien über das aktuelle Fenster
-        for key in ["sl", "tp", "be"]:
-            val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
+        # 🔹 SL/TP/BE als horizontale Linien – aus Cache, kein dq-Re-Scan
+        for key, val in (("sl", last_sl), ("tp", last_tp), ("be", last_be)):
             if val is not None:
                 lines[key].set_data([min_time, max_time], [val, val])
             else:
                 lines[key].set_data([], [])
+
 
         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
         ax = lines["ax"]
@@ -345,25 +355,23 @@ class ChartManager:
             # min_time = max_time - dt.timedelta(seconds=self.window)
             # ax.set_xlim(min_time, max_time)
 
-            # 2️⃣ Y-Achse: automatisch auf relevante Werte im Fenster skalieren (+5 % Puffer)
-            values = list(b_vals) + list(a_vals)
+            # 2️⃣ Y-Achse: aus aktuell geplotteten Daten (+5 % Puffer), ohne dq-Re-Scan
+            ymin = min(min(b_vals), min(a_vals))
+            ymax = max(max(b_vals), max(a_vals))
 
-            for key in ["sl", "tp", "ts", "be", "entry"]:
-                val = next((d.get(key) for d in reversed(dq) if isinstance(d.get(key), (int, float))), None)
-                if val is not None:
-                    values.append(val)
+            # Gezeichnete Linien berücksichtigen (EMA/HMA/TS + horizontale Level + Entry)
+            for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow", "ts", "sl", "tp", "be", "entry"]:
+                ydata = lines[key].get_ydata()
+                if len(ydata):
+                    ymin = min(ymin, min(ydata))
+                    ymax = max(ymax, max(ydata))
 
-            if values:
-                ymin, ymax = min(values), max(values)
-                padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
-                ax.set_ylim(ymin - padding, ymax + padding)
+            padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
+            ax.set_ylim(ymin - padding, ymax + padding)
 
-
-        # 🟩 Entry-Linie über das aktuelle Fenster
-        entry_vals = [d.get("entry") for d in dq if isinstance(d.get("entry"), (int, float))]
-        if entry_vals:
-            entry_price = entry_vals[-1]
-            lines["entry"].set_data([min_time, max_time], [entry_price, entry_price])
+        # 🟩 Entry-Linie über das aktuelle Fenster – aus Cache
+        if isinstance(last_entry, (int, float)):
+            lines["entry"].set_data([min_time, max_time], [last_entry, last_entry])
         else:
             lines["entry"].set_data([], [])
         
