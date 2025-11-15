@@ -22,6 +22,9 @@ class ChartManager:
         self.lines = {}     # {epic: dict(matplotlib handles)}
         self.lock = threading.Lock()
         self.last_trade_state = {}
+        self.flush_min_interval_ms = 200   # nur alle ≥200 ms flushen
+        self._last_flush_ms = {}           # epic -> letzter flush (ms, monotonic)
+
 
         plt.ion()  # Interaktiver Modus aktiv
 
@@ -387,7 +390,14 @@ class ChartManager:
         
         # 🔁 Refresh
         lines["fig"].canvas.draw_idle()
-        lines["fig"].canvas.flush_events()
+
+        # ⏱️ Rate-Limit fürs Flush (pro Epic)
+        now_ms = int(time.monotonic() * 1000)
+        last = self._last_flush_ms.get(epic, 0)
+        if (now_ms - last) >= self.flush_min_interval_ms:
+            lines["fig"].canvas.flush_events()
+            self._last_flush_ms[epic] = now_ms
+
 
     # -------------------------------------------------------
     #   Entry-Marker
