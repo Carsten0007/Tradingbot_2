@@ -13,6 +13,7 @@ mdates.set_epoch('1970-01-01T00:00:00+00:00')
 
 class ChartManager:
     def __init__(self, window_size_sec=300):
+        self._title_cache = {}   # epic -> {"text": str, "color": Any}
         self.window = window_size_sec
         self.tz = ZoneInfo("Europe/Berlin")
         self.draw_throttle_ms = 200   # Ziel: ~5 FPS pro Instrument
@@ -184,7 +185,16 @@ class ChartManager:
                 title = "Aktuell kein Trade"
                 color = "black"
 
-            ax.set_title(title, color=color)
+            # Beispiel: vorhandene Variablen verwenden, falls vorhanden
+            title_text  = title   # ← das oben berechnete
+            title_color = color
+
+            cached = self._title_cache.get(epic)
+            if (cached is None 
+                or cached.get("text") != title_text 
+                or cached.get("color") != title_color):
+                ax.set_title(title_text, color=title_color)  # 🔁 nur wenn nötig
+                self._title_cache[epic] = {"text": title_text, "color": title_color}
 
             # 🔇 Throttle: nicht bei jedem Tick rendern
             last = self._last_draw_ms.get(epic)
@@ -210,6 +220,7 @@ class ChartManager:
         fig.canvas.manager.window.attributes('-topmost', 0)
         fig.canvas.manager.set_window_title(f"{epic} – Live Chart")
         ax.set_title(f"Live Chart – {epic}")
+        self._title_cache[epic] = {"text": f"Live Chart – {epic}", "color": None}
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S", tz=self.tz))
