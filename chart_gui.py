@@ -22,17 +22,6 @@ class ChartManager:
         self.lines = {}     # {epic: dict(matplotlib handles)}
         self.lock = threading.Lock()
         self.last_trade_state = {}
-        self._dirty = set()             # epics mit neuen Daten
-        self._latest_ts_ms = {}         # epic -> letzter Tick-Zeitstempel
-        self._refresh_interval_ms = 150 # Hintergrund-Redraw-Takt
-        self._stop_event = threading.Event()
-
-        # Hintergrund-Refresher starten
-        self._refresher_thread = threading.Thread(
-            target=self._refresher_loop, name="ChartRefresher", daemon=True
-        )
-        self._refresher_thread.start()
-
 
         plt.ion()  # Interaktiver Modus aktiv
 
@@ -152,6 +141,7 @@ class ChartManager:
                     self.lines[epic][key].set_data([], [])
                 self.lines[epic]["entry_marker"].set_data([], [])
                 self.lines[epic]["entry"].set_data([], [])
+                self.lines[epic]["fig"].canvas.draw_idle()
 
                 # Stelle sicher, dass direction zurückgesetzt wird
                 for d in dq:
@@ -206,9 +196,18 @@ class ChartManager:
                 ax.set_title(title_text, color=title_color)  # 🔁 nur wenn nötig
                 self._title_cache[epic] = {"text": title_text, "color": title_color}
 
-            # Hintergrund-Redraw signalisieren (nicht hier rendern)
-            self._latest_ts_ms[epic] = ts_ms
-            self._dirty.add(epic)
+            # 🔇 Throttle: nicht bei jedem Tick rendern
+            last = self._last_draw_ms.get(epic)
+            if last is not None and (ts_ms - last) < self.draw_throttle_ms:
+                return
+            self._last_draw_ms[epic] = ts_ms
+
+            # 🔁 Refresh
+            self._refresh_chart(epic)
+            # (Kein zusätzlicher Draw/Flush hier – _refresh_chart erledigt das bereits)
+
+
+
 
     # -------------------------------------------------------
     #   Neues Instrument initialisieren
@@ -427,41 +426,5 @@ class ChartManager:
         self.last_trade_state[epic] = False
 
         print(f"[Chart] Trade beendet → Linien für {epic} entfernt, Bid/Ask bleiben erhalten")
-
-    # -------------------------------------------------------
-    #   Hintergrund-Refresher, Rendering blockiert nicht mehr den WS-Empfang
-    # -------------------------------------------------------
-    def _refresher_loop(self):
-        while not self._stop_event.is_set():
-            try:
-                time.sleep(self._refresh_interval_ms / 1000.0)
-                with self.lock:
-                    # für alle markierten Epics prüfen, ob ein Draw „fällig“ ist
-                    for epic in list(self._dirty):
-                        ts_ms = self._latest_ts_ms.get(epic)
-                        if ts_ms is None:
-                            self._dirty.discard(epic)
-                            continue
-
-                        last = self._last_draw_ms.get(epic)
-                        # Throttle beachten (aus Schritt 2)
-                        if last is not None and (ts_ms - last) < self.draw_throttle_ms:
-                            continue
-
-                        self._last_draw_ms[epic] = ts_ms
-                        # Einziger Zeichnenpfad
-                        self._refresh_chart(epic)
-                        # „Dirty“ für dieses Epic abgearbeitet
-                        self._dirty.discard(epic)
-            except Exception:
-                # Sicherstellen, dass der Thread nie abstürzt
-                pass
-
-    # -------------------------------------------------------
-    #   Sauberes Beenden ermöglichen
-    # -------------------------------------------------------
-    def stop(self):
-        self._stop_event.set()
-
-
+        self.lines[epic]["fig"].canvas.draw_idle()
 
