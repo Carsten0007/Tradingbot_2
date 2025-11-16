@@ -328,25 +328,37 @@ class ChartManager:
             asks.append(a_val)
 
 
-        # 📊 Nur gültige Punkte verwenden
-        valid_points = [(t, b, a) for t, b, a in zip(times, bids, asks) if b is not None and a is not None]
-        if not valid_points:
-            return  # kein einziger Tick → nichts zeichnen
+        # 📊 Bid/Ask unabhängig behandeln (keine Erzwingung „beide Seiten“)
+        bid_pts = [(t, b) for t, b in zip(times, bids) if b is not None]
+        ask_pts = [(t, a) for t, a in zip(times, asks) if a is not None]
+        if not bid_pts and not ask_pts:
+            return
 
-        # Zeitfenster zuerst bestimmen (am letzten gültigen Tick)
-        last_t = valid_points[-1][0]
-        max_time = last_t
+        # Zeitfenster am rechten Fensterrand ausrichten (letzter Timestamp des Puffers)
+        max_time = times[-1]
         min_time = max_time - dt.timedelta(seconds=self.window)
         ax = self.lines[epic]["ax"]
         ax.set_xlim(min_time, max_time)
 
-        # ur Punkte im Fenster zeichnen
-        window_pts = [(t, b, a) for (t, b, a) in valid_points if (min_time <= t <= max_time)]
-        if not window_pts:
-            return
-        t_vals, b_vals, a_vals = zip(*window_pts)
-        lines["bid"].set_data(t_vals, b_vals)
-        lines["ask"].set_data(t_vals, a_vals)
+        # Punkte im Fenster
+        bid_w = [(t, b) for (t, b) in bid_pts if (min_time <= t <= max_time)]
+        ask_w = [(t, a) for (t, a) in ask_pts if (min_time <= t <= max_time)]
+
+        # Linien setzen – jede Seite separat
+        if bid_w:
+            t_b, b_vals = zip(*bid_w)
+            lines["bid"].set_data(t_b, b_vals)
+        else:
+            b_vals = []  # leer für Y-Scale unten
+            lines["bid"].set_data([], [])
+
+        if ask_w:
+            t_a, a_vals = zip(*ask_w)
+            lines["ask"].set_data(t_a, a_vals)
+        else:
+            a_vals = []
+            lines["ask"].set_data([], [])
+
 
         # 📏 Dynamische Initial-Skalierung
         ax = self.lines[epic]["ax"]
@@ -391,25 +403,28 @@ class ChartManager:
         # 🕒 X-Achse immer als rollendes Fenster mit fixer Breite (self.window Sekunden)
         ax = lines["ax"]
 
-        if bids or asks:
-            # # 1️⃣ Zeitfenster: immer genau self.window Sekunden breit
-            # max_time = times[-1]
-            # min_time = max_time - dt.timedelta(seconds=self.window)
-            # ax.set_xlim(min_time, max_time)
+        # 2️⃣ Y-Achse: aus aktuell geplotteten Daten (+5 % Puffer), robust bei leeren Seiten
+        ymins, ymaxs = [], []
 
-            # 2️⃣ Y-Achse: aus aktuell geplotteten Daten (+5 % Puffer), ohne dq-Re-Scan
-            ymin = min(min(b_vals), min(a_vals))
-            ymax = max(max(b_vals), max(a_vals))
+        # Bid/Ask aus den im Fenster geplotteten Arrays
+        if 'b_vals' in locals() and b_vals:
+            ymins.append(min(b_vals)); ymaxs.append(max(b_vals))
+        if 'a_vals' in locals() and a_vals:
+            ymins.append(min(a_vals)); ymaxs.append(max(a_vals))
 
-            # Gezeichnete Linien berücksichtigen (EMA/HMA/TS + horizontale Level + Entry)
-            for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow", "ts", "sl", "tp", "be", "entry"]:
-                ydata = lines[key].get_ydata()
-                if len(ydata):
-                    ymin = min(ymin, min(ydata))
-                    ymax = max(ymax, max(ydata))
+        # EMA/HMA/TS/Horizontale Level/Entry mit berücksichtigen
+        for key in ["ema_fast", "ema_slow", "hma_fast", "hma_slow", "ts", "sl", "tp", "be", "entry"]:
+            ydata = lines[key].get_ydata()
+            if len(ydata):
+                ymins.append(min(ydata))
+                ymaxs.append(max(ydata))
 
+        # Nur wenn wir irgendetwas haben, Limits setzen
+        if ymins:
+            ymin, ymax = min(ymins), max(ymaxs)
             padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
             ax.set_ylim(ymin - padding, ymax + padding)
+
 
         # 🟩 Entry-Linie über das aktuelle Fenster – aus Cache
         if isinstance(last_entry, (int, float)):
