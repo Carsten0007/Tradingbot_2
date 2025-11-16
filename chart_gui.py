@@ -24,7 +24,7 @@ class ChartManager:
         self.last_trade_state = {}
         self.flush_min_interval_ms = 200   # nur alle ≥200 ms flushen
         self._last_flush_ms = {}           # epic -> letzter flush (ms, monotonic)
-
+        self.ffill_max_gap_ms = 900   # nach 0.9s ohne neuen Tick NICHT mehr halten
 
         plt.ion()  # Interaktiver Modus aktiv
 
@@ -71,12 +71,18 @@ class ChartManager:
 
             # 🧠 Letzten Datensatz übernehmen, falls neue Werte fehlen
             last = dq[-1] if dq else {}
+            bid_time = now if bid is not None else last.get("bid_time")
+            ask_time = now if ask is not None else last.get("ask_time")
 
             dq.append({
                 "time": now,
                 "bid": bid,
                 "ask": ask,
                 "close": bar.get("close"),
+
+                # ⬇️ NEU: Zeitpunkte letzter REALER Updates / 16.11.2025 00:44, diagramm fix 7a+
+                "bid_time": bid_time,
+                "ask_time": ask_time,
 
                 # Entry bleibt persistent, wenn kein neuer Wert kommt
                 "entry": pos.get("entry_price") or last.get("entry"),
@@ -278,26 +284,49 @@ class ChartManager:
                 lines[key].set_data([], [])
 
 
-        # 🔧 Immer letzten bekannten Wert übernehmen (statt leere Stellen)
+        # 🔧 Forward-Fill nur bis max ffill_max_gap_ms (sonst Lücke = None)
         bids, asks = [], []
         last_bid = last_ask = None
-        # ⬇️ Neu: letzte Levels im selben Loop merken (kein zweiter dq-Scan)
+        last_bid_time = last_ask_time = None
+        # ⬇️ Level-Cache bleibt erhalten
         last_sl = last_tp = last_ts = last_be = last_entry = None
 
         for d in dq:
+            # Reale Updates übernehmen
             if d.get("bid") is not None:
                 last_bid = d["bid"]
+                last_bid_time = d.get("bid_time")  # kommt aus update()
             if d.get("ask") is not None:
                 last_ask = d["ask"]
-            # Level-Cache aktualisieren
+                last_ask_time = d.get("ask_time")  # kommt aus update()
+
+            # Level-Cache aktualisieren (unverändert)
             v = d.get("sl");    last_sl    = v if isinstance(v, (int, float)) else last_sl
             v = d.get("tp");    last_tp    = v if isinstance(v, (int, float)) else last_tp
             v = d.get("ts");    last_ts    = v if isinstance(v, (int, float)) else last_ts
             v = d.get("be");    last_be    = v if isinstance(v, (int, float)) else last_be
             v = d.get("entry"); last_entry = v if isinstance(v, (int, float)) else last_entry
 
-            bids.append(last_bid)
-            asks.append(last_ask)
+            # Zeitpunkt dieses Samples
+            t = d["time"]
+
+            # Bid nur gültig, wenn seit letztem echten Bid-Update ≤ TTL
+            if last_bid is not None and last_bid_time is not None:
+                age_ms_bid = (t - last_bid_time).total_seconds() * 1000.0
+                b_val = last_bid if age_ms_bid <= self.ffill_max_gap_ms else None
+            else:
+                b_val = None
+
+            # Ask dito
+            if last_ask is not None and last_ask_time is not None:
+                age_ms_ask = (t - last_ask_time).total_seconds() * 1000.0
+                a_val = last_ask if age_ms_ask <= self.ffill_max_gap_ms else None
+            else:
+                a_val = None
+
+            bids.append(b_val)
+            asks.append(a_val)
+
 
         # 📊 Nur gültige Punkte verwenden
         valid_points = [(t, b, a) for t, b, a in zip(times, bids, asks) if b is not None and a is not None]
