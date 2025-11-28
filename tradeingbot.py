@@ -20,7 +20,10 @@ init(autoreset=True)
 # Ringpuffer für Tick-Daten (mid)
 TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
+
 _last_dirlog_sec = {}
+_last_close_ts = {}
+CLOSE_COOLDOWN_SEC = 2
 
 # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
 API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
@@ -817,7 +820,12 @@ def safe_close(CST, XSEC, epic, deal_id=None):
         deal_id = str(deal_id)
 
     r = close_position(CST, XSEC, epic, deal_id=deal_id)
-    ok = (r is not None and r.status_code == 200)
+    ok = (r is not None and (
+        r.status_code == 200 or
+        (r.status_code == 404 and "not-found.dealId" in getattr(r, "text", ""))
+    ))
+    if r is not None and r.status_code == 404:
+        print(f"ℹ️ [{epic}] Close 404 not-found.dealId → Position gilt als bereits geschlossen (idempotent).")
 
     if ok:
         open_positions[epic] = None
@@ -884,6 +892,14 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     if not (direction and entry and bid is not None and ask is not None):
         return
 
+    # --- Debounced Close helper (verhindert Mehrfach-Calls in kurzer Zeit)
+    def _debounced_close():
+        now = time.monotonic()
+        if now - _last_close_ts.get(epic, 0.0) < CLOSE_COOLDOWN_SEC:
+            return
+        _last_close_ts[epic] = now
+        safe_close(CST, XSEC, epic, deal_id=deal_id)
+
     # Spread in Prozent der Entry-Basis
     spread_pct = spread / entry
     price = bid if direction == "BUY" else ask
@@ -934,10 +950,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         # Stops prüfen
         if price <= stop_loss_level or (stop is not None and price <= stop):
             print(f"⛔ [{epic}] Stop ausgelöst (Bid={price:.2f}) → schließe LONG")
-            safe_close(CST, XSEC, epic, deal_id=deal_id)
+            _debounced_close()
         elif price >= take_profit_level:
             print(f"✅ [{epic}] Take-Profit erreicht (Bid={price:.2f}) → schließe LONG")
-            safe_close(CST, XSEC, epic, deal_id=deal_id)
+            _debounced_close()
 
     # === SHORT ===
     elif direction == "SELL":
@@ -976,10 +992,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         # Stops prüfen
         if price >= stop_loss_level or (stop is not None and price >= stop):
             print(f"⛔ [{epic}] Stop ausgelöst (Ask={price:.2f}) → schließe SHORT")
-            safe_close(CST, XSEC, epic, deal_id=deal_id)
+            _debounced_close()
         elif price <= take_profit_level:
             print(f"✅ [{epic}] Take-Profit erreicht (Ask={price:.2f}) → schließe SHORT")
-            safe_close(CST, XSEC, epic, deal_id=deal_id)
+            _debounced_close()
 
 
 # ==============================
