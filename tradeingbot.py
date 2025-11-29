@@ -74,7 +74,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0050  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
