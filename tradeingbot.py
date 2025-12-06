@@ -30,14 +30,13 @@ API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
 USERNAME = os.getenv("CAPITAL_USERNAME") or "carsten.schoettke@gmx.de"
 PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy&"
 
+# API Adressen
+BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
 # Basis-URLs LIVE
 #BASE_REST   = "https://api-capital.backend-capital.com"
-#BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
 #ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "live")  # "demo" oder "live"
-
 # Basis-URLs DEMO
 BASE_REST   = "https://demo-api-capital.backend-capital.com"
-BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
 ACCOUNT  = os.getenv("CAPITAL_ACCOUNT_TYPE", "demo")
 
 # Instrumente
