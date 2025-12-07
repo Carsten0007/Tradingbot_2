@@ -67,6 +67,43 @@ MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 
 USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 
 # ==============================
+# SIGNALFILTER – Entry-Feinjustage
+# ==============================
+
+# Maximal zulässige Entfernung zwischen Kurs und schnellem MA in Einheiten
+# des aktuellen Spreads.
+#
+# Interpretation:
+#   distance = abs(last_close - ma_fast)
+#   max_distance = spread * SIGNAL_MAX_PRICE_DISTANCE_SPREADS
+#
+# Nur wenn distance <= max_distance ist, wird ein Trend-Signal (BUY/SELL)
+# überhaupt in Betracht gezogen. Liegt der Kurs weiter weg, wird das Signal
+# als "überdehnt" auf HOLD gesetzt.
+#
+# Wirkung:
+#   0.5–1.0  → sehr streng: nur Einstiege nahe am Trendband (MA)
+#   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
+#   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
+#   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
+SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 100.0
+
+# Momentum-Toleranz für Trend-Signale:
+# Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
+# nachlassen darf, bevor ein BUY/SELL-Signal verworfen wird.
+#
+# Beispiel:
+#   SIGNAL_MOMENTUM_TOLERANCE = 0.2
+#   → momentum_now muss mindestens 20 % von momentum_prev erreichen,
+#     sonst wird das Signal als "Momentum schwach" auf HOLD gesetzt.
+#
+# Wirkung:
+#   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
+#     Signale nach Momentum-Einbruch werden ignoriert.
+#   - großer Wert (1.0): Filter praktisch deaktiviert.
+SIGNAL_MOMENTUM_TOLERANCE = 1.0
+
+# ==============================
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
@@ -468,9 +505,10 @@ def directionality_factor(epic: str, window_sec: int = 180, min_samples: int = 4
     # Vertikalitäts-Faktor ∈ [0, 1] für ein Instrument.
     #   0.0 = horizontal / seitwärts
     #   1.0 = starker Trend
+    #  -1.0 = kein Buffer / keine Datenzu / wenig Daten → Sentinel
     dq = TICK_RING.get(epic)
     if not dq:
-        return 0.5
+        return -1.0  # kein Buffer / keine Daten → Sentinel
 
     newest_ts = dq[-1][0]
     cut_ts = newest_ts - int(window_sec * 1000)
@@ -484,7 +522,7 @@ def directionality_factor(epic: str, window_sec: int = 180, min_samples: int = 4
             seg_prices_rev.append(float(mid))
 
     if len(seg_prices_rev) < min_samples:
-        return 0.5
+        return -1.0  # zu wenig Daten → Sentinel
 
     prices = list(reversed(seg_prices_rev))
 
@@ -709,7 +747,7 @@ def evaluate_trend_signal(epic, closes, spread):
     # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
     # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
     distance = abs(last_close - ma_fast)
-    max_distance = spread * 100  # 8 Faktor anpassbar (1.0–2.0 typisch)
+    max_distance = spread * SIGNAL_MAX_PRICE_DISTANCE_SPREADS   # 8 Faktor anpassbar (1.0–2.0 typisch)
 
     if distance > max_distance:
         now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
@@ -746,11 +784,11 @@ def evaluate_trend_signal(epic, closes, spread):
     # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
     # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
     # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
-    if ma_fast > ma_slow and momentum_now < momentum_prev * 1.0: # 0.1
+    if ma_fast > ma_slow and momentum_now < momentum_prev * SIGNAL_MOMENTUM_TOLERANCE : # 0.1
         # print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
 
-    if ma_fast < ma_slow and momentum_now > momentum_prev * 1.0: # 0.1
+    if ma_fast < ma_slow and momentum_now > momentum_prev * SIGNAL_MOMENTUM_TOLERANCE : # 0.1
         # print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
         return f"HOLD (Momentum schwach, {ma_type})"
 
