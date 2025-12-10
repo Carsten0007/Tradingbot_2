@@ -59,8 +59,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 2 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 5 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 5 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 11 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
@@ -86,7 +86,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
 #   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
-SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 100.0
+SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 5.0
 
 # Momentum-Toleranz für Trend-Signale:
 # Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
@@ -101,7 +101,7 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 100.0
 #   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
 #     Signale nach Momentum-Einbruch werden ignoriert.
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
-SIGNAL_MOMENTUM_TOLERANCE = 1.0
+SIGNAL_MOMENTUM_TOLERANCE = 0.5
 
 # ==============================
 # Risk Management Parameter
