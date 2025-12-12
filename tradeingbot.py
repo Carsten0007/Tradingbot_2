@@ -26,9 +26,9 @@ _last_close_ts = {}
 CLOSE_COOLDOWN_SEC = 2
 
 # Zugangsdaten aus Umgebungsvariablen oder direkt hier eintragen
-API_KEY  = os.getenv("CAPITAL_API_KEY") or "50vfL7RdFiukl2UE"
+API_KEY  = os.getenv("CAPITAL_API_KEY") or "l8HA4NGKyCXoVUXJ"
 USERNAME = os.getenv("CAPITAL_USERNAME") or "carsten.schoettke@gmx.de"
-PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy&"
+PWD      = os.getenv("CAPITAL_PASSWORD") or "G8ZdGJHN7VB9vJy_"
 
 # API Adressen
 BASE_STREAM = "wss://api-streaming-capital.backend-capital.com/connect"
