@@ -59,8 +59,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 9 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 3 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 8 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
@@ -110,7 +110,7 @@ SIGNAL_MOMENTUM_TOLERANCE = 0.7
 STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
 TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0020  # z. B. 0,2% Gewinnziel
+TAKE_PROFIT_PCT           = 0.0220  # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
@@ -1281,6 +1281,18 @@ async def run_candle_aggregator_per_instrument():
                         pos["mark_price"]     = mark
                         pos["unrealized_pnl"] = pnl
                         pos["last_tick_ms"]   = ts_ms
+
+                    # # ticks in datei schreiben
+                    # filename = f"ticks_{epic}.csv"
+                    # try:
+                    #     with open(filename, "a", encoding="utf-8", newline="") as f:
+                    #         # Dezimalpunkt bleibt so, Komma kannst du später im Editor/Excel ersetzen
+                    #         f.write(f"{ts_ms};{bid};{ask}\n")
+                    # except Exception as e:
+                    #     # I/O-Fehler sollen den Bot nicht abschießen
+                    #     print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
+                    # # datei ende
+
 
 
                     mid_price = (bid + ask) / 2.0
