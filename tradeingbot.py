@@ -12,6 +12,21 @@ from collections import deque
 from colorama import Fore, Style, init
 from chart_gui import ChartManager
 
+# 16.12.2025, ChatGPT 5.2: bestes Set für Tickverlauf 14.12.2025 23:41 - 16.12.2025 09:22
+# USE_HMA = True
+# EMA_FAST = 5
+# EMA_SLOW = 30
+# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 2.0
+# SIGNAL_MOMENTUM_TOLERANCE = 1.3
+# STOP_LOSS_PCT = 0.005
+# TRAILING_STOP_PCT = 0.008
+# TAKE_PROFIT_PCT = 0.008
+# BREAK_EVEN_STOP_PCT = 0.0001
+# BREAK_EVEN_BUFFER_PCT = 0.0001
+# TRAILING_SET_CALM_DOWN = 0.0
+
+
+
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
 
 charts = ChartManager(window_size_sec=300)
