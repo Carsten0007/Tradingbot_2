@@ -25,6 +25,20 @@ from chart_gui import ChartManager
 # BREAK_EVEN_BUFFER_PCT = 0.0001
 # TRAILING_SET_CALM_DOWN = 0.0
 
+# 18.12.2025, nach spread fix
+# USE_HMA = True
+# EMA_FAST = 5
+# EMA_SLOW = 30
+# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 5.0      # vorher 4.0: nach Fix oft zu knapp an der Kante
+# SIGNAL_MOMENTUM_TOLERANCE = 1.2              # vorher 1.3: minimal entspannen
+# STOP_LOSS_PCT = 0.005
+# TRAILING_STOP_PCT = 0.008
+# TAKE_PROFIT_PCT = 0.008
+# BREAK_EVEN_STOP_PCT = 0.0010                 # vorher 0.0001: zu früh -> Stop-Chop
+# BREAK_EVEN_BUFFER_PCT = 0.0005               # vorher 0.0001
+# TRAILING_SET_CALM_DOWN = 0.5                 # vorher 0.0: reduziert „Gezappel“ beim Nachziehen
+
+
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
@@ -98,7 +112,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
 #   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
-SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
+SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 5.0
 
 # Momentum-Toleranz für Trend-Signale:
 # Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
@@ -113,7 +127,7 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
 #     Signale nach Momentum-Einbruch werden ignoriert.
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
-SIGNAL_MOMENTUM_TOLERANCE = 1.3
+SIGNAL_MOMENTUM_TOLERANCE = 1.2
 
 # ==============================
 # Risk Management Parameter
@@ -123,8 +137,8 @@ STOP_LOSS_PCT             = 0.005   # fester Stop-Loss
 TRAILING_STOP_PCT         = 0.008   # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT           = 0.008  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+BREAK_EVEN_STOP_PCT       = 0.001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT     = 0.0005 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
@@ -406,7 +420,7 @@ def on_candle_forming(epic, bar, ts_ms):
     low_bid = bar.get("low_bid")
 
     if high_ask is not None and low_bid is not None:
-        spread = (high_ask - low_bid) / max(1, bar["ticks"])
+        spread = (close_ask - close_bid) if (close_ask is not None and close_bid is not None) else 0.0
     else:
         spread = 0.0
 
@@ -570,9 +584,7 @@ def on_candle_close(epic, bar):
     candle_history[epic].append(mid_price)
 
     # === 2️⃣ Spread berechnen (reale Marktspanne) ===
-    high_ask = bar.get("high_ask") or bar.get("high")
-    low_bid = bar.get("low_bid") or bar.get("low")
-    spread = (high_ask - low_bid) / max(1, bar.get("ticks", 1)) if high_ask and low_bid else 0.0
+    spread = (bar.get("close_ask") - bar.get("close_bid")) if (bar.get("close_ask") is not None and bar.get("close_bid") is not None) else 0.0
 
     # === 3️⃣ Handelssignal auswerten ===
     signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
