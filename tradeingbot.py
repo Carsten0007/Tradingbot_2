@@ -1283,11 +1283,27 @@ async def run_candle_aggregator_per_instrument():
                     # ticks in datei schreiben
                     filename = f"ticks_{epic}.csv"
                     try:
-                        with open(filename, "a", encoding="utf-8", newline="") as f:
-                            # Dezimalpunkt bleibt so, Komma kannst du später im Editor/Excel ersetzen
-                            f.write(f"{ts_ms};{bid};{ask}\n")
+                        # Position offen? -> volle Tickauflösung beibehalten
+                        in_trade = isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price") is not None
+
+                        # Optional: letzter 1s jeder Minute auch voll loggen (für Candle-Close-Fidelity)
+                        full_log = in_trade or ((ts_ms % 60000) >= 59000)
+
+                        do_write = False
+                        if full_log:
+                            do_write = True
+                        else:
+                            sec = ts_ms // 1000
+                            last_sec = _last_ticklog_sec.get(epic)
+                            if last_sec != sec:
+                                _last_ticklog_sec[epic] = sec
+                                do_write = True
+
+                        if do_write:
+                            with open(filename, "a", encoding="utf-8", newline="") as f:
+                                f.write(f"{ts_ms};{bid};{ask}\n")
+
                     except Exception as e:
-                        # I/O-Fehler sollen den Bot nicht abschießen
                         print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
                     # datei ende
 
