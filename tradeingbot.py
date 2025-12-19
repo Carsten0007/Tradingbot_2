@@ -12,58 +12,6 @@ from collections import deque
 from colorama import Fore, Style, init
 from chart_gui import ChartManager
 
-# 16.12.2025, ChatGPT 5.2: bestes Set für Tickverlauf 14.12.2025 23:41 - 16.12.2025 09:22
-# USE_HMA = True
-# EMA_FAST = 5
-# EMA_SLOW = 30
-# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 2.0
-# SIGNAL_MOMENTUM_TOLERANCE = 1.3
-# STOP_LOSS_PCT = 0.005
-# TRAILING_STOP_PCT = 0.008
-# TAKE_PROFIT_PCT = 0.008
-# BREAK_EVEN_STOP_PCT = 0.0001
-# BREAK_EVEN_BUFFER_PCT = 0.0001
-# TRAILING_SET_CALM_DOWN = 0.0
-
-# 18.12.2025, nach spread fix
-# USE_HMA = True
-# EMA_FAST = 5
-# EMA_SLOW = 30
-# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 5.0      # vorher 4.0: nach Fix oft zu knapp an der Kante
-# SIGNAL_MOMENTUM_TOLERANCE = 1.2              # vorher 1.3: minimal entspannen
-# STOP_LOSS_PCT = 0.005
-# TRAILING_STOP_PCT = 0.008
-# TAKE_PROFIT_PCT = 0.008
-# BREAK_EVEN_STOP_PCT = 0.0010                 # vorher 0.0001: zu früh -> Stop-Chop
-# BREAK_EVEN_BUFFER_PCT = 0.0005               # vorher 0.0001
-# TRAILING_SET_CALM_DOWN = 0.5                 # vorher 0.0: reduziert „Gezappel“ beim Nachziehen
-
-# 18.12.2025, 2
-# USE_HMA = True
-# EMA_FAST = 7
-# EMA_SLOW = 21  # alternativ 30
-# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 3.0
-# SIGNAL_MOMENTUM_TOLERANCE = 1.2
-# STOP_LOSS_PCT = 0.005
-# TRAILING_STOP_PCT = 0.008
-# TAKE_PROFIT_PCT = 0.008
-# BREAK_EVEN_STOP_PCT = 0.0010
-# BREAK_EVEN_BUFFER_PCT = 0.0005
-# TRAILING_SET_CALM_DOWN = 0.5
-
-# 19.12.2025, 1
-# USE_HMA = True
-# EMA_FAST = 7
-# EMA_SLOW = 21
-# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 3.0
-# SIGNAL_MOMENTUM_TOLERANCE = 1.2
-# STOP_LOSS_PCT = 0.005
-# TRAILING_STOP_PCT = 0.008
-# TAKE_PROFIT_PCT = 0.008
-# BREAK_EVEN_STOP_PCT = 0.0010
-# BREAK_EVEN_BUFFER_PCT = 0.0015   # <- geändert (war 0.0005)
-# TRAILING_SET_CALM_DOWN = 0.5
-
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
@@ -73,6 +21,7 @@ TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
 
 _last_dirlog_sec = {}
+_last_ticklog_sec = {}   # epic -> last logged second (int)
 _last_close_ts = {}
 CLOSE_COOLDOWN_SEC = 2
 
@@ -110,7 +59,7 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 7 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_FAST = 5 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
 EMA_SLOW = 21 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
@@ -137,7 +86,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
 #   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
-SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 3.0
+SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 
 # Momentum-Toleranz für Trend-Signale:
 # Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
@@ -158,12 +107,12 @@ SIGNAL_MOMENTUM_TOLERANCE = 1.2
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.0050 # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0080 # Trailing Stop
+STOP_LOSS_PCT             = 0.0060 # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0050 # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT           = 0.0080 # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0010 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT     = 0.0015 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+BREAK_EVEN_BUFFER_PCT     = 0.0020 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
