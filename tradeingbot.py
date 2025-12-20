@@ -112,7 +112,7 @@ TRAILING_STOP_PCT         = 0.0050 # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT           = 0.0080 # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0010 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT     = 0.0020 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+BREAK_EVEN_BUFFER_PCT     = 0.0010 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
@@ -1306,8 +1306,6 @@ async def run_candle_aggregator_per_instrument():
                     except Exception as e:
                         print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
                     # datei ende
-
-
 
                     mid_price = (bid + ask) / 2.0
                     spread = ask - bid
