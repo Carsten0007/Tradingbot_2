@@ -59,8 +59,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 5 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 21 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 10 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 30 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
@@ -101,18 +101,18 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
 #     Signale nach Momentum-Einbruch werden ignoriert.
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
-SIGNAL_MOMENTUM_TOLERANCE = 1.2
+SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
 # ==============================
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.0040 # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0045 # Trailing Stop
+STOP_LOSS_PCT             = 0.0070 # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0075 # Trailing Stop
 TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
 TAKE_PROFIT_PCT           = 0.0060 # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT       = 0.0020 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT     = 0.0004 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+BREAK_EVEN_STOP_PCT       = 0.0030 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
