@@ -12,21 +12,6 @@ from collections import deque
 from colorama import Fore, Style, init
 from chart_gui import ChartManager
 
-# 16.12.2025, ChatGPT 5.2: bestes Set für Tickverlauf 14.12.2025 23:41 - 16.12.2025 09:22
-# USE_HMA = True
-# EMA_FAST = 5
-# EMA_SLOW = 30
-# SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 2.0
-# SIGNAL_MOMENTUM_TOLERANCE = 1.3
-# STOP_LOSS_PCT = 0.005
-# TRAILING_STOP_PCT = 0.008
-# TAKE_PROFIT_PCT = 0.008
-# BREAK_EVEN_STOP_PCT = 0.0001
-# BREAK_EVEN_BUFFER_PCT = 0.0001
-# TRAILING_SET_CALM_DOWN = 0.0
-
-
-
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
 
 charts = ChartManager(window_size_sec=300)
@@ -146,8 +131,134 @@ BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE
 # BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 
-# funzt ~
-# EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
+
+# ==============================
+# PARAMETER CSV (Reload) – 2 Trigger: Startup + nach Close
+# ==============================
+
+PARAMETER_CSV = os.path.join(os.path.dirname(__file__), "parameter.csv")
+
+# Welche Variablen dürfen aus parameter.csv überschrieben werden?
+# (Liste bewusst explizit, damit nicht aus Versehen API_KEYS etc. überschrieben werden.)
+_PARAM_KEYS = [
+    "USE_HMA",
+    "EMA_FAST",
+    "EMA_SLOW",
+    "SIGNAL_MAX_PRICE_DISTANCE_SPREADS",
+    "SIGNAL_MOMENTUM_TOLERANCE",
+    "STOP_LOSS_PCT",
+    "TRAILING_STOP_PCT",
+    "TAKE_PROFIT_PCT",
+    "BREAK_EVEN_STOP_PCT",
+    "BREAK_EVEN_BUFFER_PCT",
+    "TRAILING_SET_CALM_DOWN",
+    "TRADE_RISK_PCT",
+    "MANUAL_TRADE_SIZE",
+]
+
+# Merker für "nur loggen, wenn sich wirklich was geändert hat"
+_PARAM_LAST_APPLIED = None  # dict | None
+
+
+def _cast_like_existing(key: str, raw_value: str):
+    """Castet raw_value grob auf den Typ der existierenden Global-Variable (ohne Plausibilitätschecks)."""
+    if key not in globals():
+        return raw_value
+
+    base = globals()[key]
+
+    # Bool ist Unterklasse von int -> Bool zuerst prüfen
+    if isinstance(base, bool):
+        v = raw_value.strip().lower()
+        if v in ("1", "true", "yes", "y", "on"):
+            return True
+        if v in ("0", "false", "no", "n", "off"):
+            return False
+        # Wenn es knallt, knallt es (oder wird vom outer try/except abgefangen)
+        raise ValueError(f"Bool erwartet für {key}, got: {raw_value!r}")
+
+    if isinstance(base, int):
+        return int(raw_value.strip())
+
+    if isinstance(base, float):
+        # DE-Notation tolerieren (Komma → Punkt), ohne weitere Checks
+        return float(raw_value.strip().replace(",", "."))
+
+    # Fallback: als String
+    return raw_value.strip()
+
+
+def load_parameters(trigger: str) -> bool:
+    """
+    Lädt parameter.csv (selber Ordner wie Script), 'letzte Zeile gewinnt',
+    und überschreibt nur bekannte _PARAM_KEYS.
+    Logging: genau 1 Zeile, aber nur wenn sich effektiv etwas geändert hat.
+
+    Return:
+      True  -> Parameter wurden geändert und angewendet
+      False -> keine Änderung (oder Datei fehlt/fehlerhaft -> bestehende Werte bleiben)
+    """
+    global _PARAM_LAST_APPLIED
+
+    path = PARAMETER_CSV
+
+    # Snapshot der aktuellen Werte (damit "keine Änderung" sauber erkannt wird)
+    current = {k: globals().get(k) for k in _PARAM_KEYS if k in globals()}
+
+    if not os.path.isfile(path):
+        # Startup: Defaults bleiben, Laufzeit: bestehende bleiben
+        print(f"⚠️ PARAM: {os.path.basename(path)} fehlt ({trigger}) → bestehende/Default-Parameter bleiben aktiv")
+        return False
+
+    updated = dict(current)
+
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if ";" not in line:
+                    raise ValueError(f"Ungültige Zeile (kein ';'): {raw!r}")
+
+                key, value = [p.strip() for p in line.split(";", 1)]
+
+                # optional: Header-Zeile ignorieren
+                if key.lower() in ("key", "param", "parameter") and value.lower() in ("value", "wert"):
+                    continue
+
+                if key not in updated:
+                    # unbekannte Keys ignorieren (kein Crash durch Tippfehler)
+                    continue
+
+                updated[key] = _cast_like_existing(key, value)
+
+    except Exception as e:
+        # Gemäß deinem Failure-Mode-Wunsch (früher): bei kaputter Datei NICHT umschalten
+        print(f"⚠️ PARAM: {os.path.basename(path)} unlesbar/kaputt ({trigger}) → keine Änderung. Grund: {e}")
+        return False
+
+    # Effektive Änderungen ermitteln (gegen "current", damit erneutes Einlesen nicht spammt)
+    changes = [(k, current.get(k), updated.get(k)) for k in updated.keys() if current.get(k) != updated.get(k)]
+    if not changes:
+        print(f"ℹ️ PARAM gelesen ({trigger}) → keine Änderungen")
+        return False
+
+
+    # Anwenden (global überschreiben)
+    for k, _old, new in changes:
+        globals()[k] = new
+
+    # Logging: genau eine Zeile
+    msg = "; ".join([f"{k} {old}→{new}" for k, old, new in changes])
+    print(f"🧩 PARAM geändert ({trigger}): {msg}")
+
+    _PARAM_LAST_APPLIED = {k: globals().get(k) for k in updated.keys()}
+    return True
+
+
+
+
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -893,6 +1004,9 @@ def safe_close(CST, XSEC, epic, deal_id=None):
                 print(f"✅ [{epic}] Deal {deal_id} ist aus get_positions() verschwunden.")
         except Exception as e:
             print(f"⚠️ [{epic}] Abgleich nach Close fehlgeschlagen:", e)
+
+        load_parameters(f"after_close:{epic}")
+
     else:
         print(f"⚠️ [{epic}] Close fehlgeschlagen (dealId={deal_id})")
 
@@ -1297,18 +1411,16 @@ async def run_candle_aggregator_per_instrument():
                         pos["unrealized_pnl"] = pnl
                         pos["last_tick_ms"]   = ts_ms
 
-                    # # ticks in datei schreiben
-                    # filename = f"ticks_{epic}.csv"
-                    # try:
-                    #     with open(filename, "a", encoding="utf-8", newline="") as f:
-                    #         # Dezimalpunkt bleibt so, Komma kannst du später im Editor/Excel ersetzen
-                    #         f.write(f"{ts_ms};{bid};{ask}\n")
-                    # except Exception as e:
-                    #     # I/O-Fehler sollen den Bot nicht abschießen
-                    #     print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
-                    # # datei ende
-
-
+                    # ticks in datei schreiben
+                    filename = f"ticks_{epic}.csv"
+                    try:
+                        with open(filename, "a", encoding="utf-8", newline="") as f:
+                            # Dezimalpunkt bleibt so, Komma kannst du später im Editor/Excel ersetzen
+                            f.write(f"{ts_ms};{bid};{ask}\n")
+                    except Exception as e:
+                        # I/O-Fehler sollen den Bot nicht abschießen
+                        print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
+                    # datei ende
 
                     mid_price = (bid + ask) / 2.0
                     spread = ask - bid
@@ -1458,6 +1570,8 @@ if __name__ == "__main__":
         print("  UTC now    :", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC"))
         test_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         print("  to_local_dt:", to_local_dt(test_ms).strftime("%d.%m.%Y %H:%M:%S %Z"))
+
+        load_parameters("startup")
 
         asyncio.run(run_candle_aggregator_per_instrument())
     except KeyboardInterrupt:
