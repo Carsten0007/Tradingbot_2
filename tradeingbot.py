@@ -13,7 +13,6 @@ from colorama import Fore, Style, init
 from chart_gui import ChartManager
 
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
-
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
 
@@ -22,6 +21,7 @@ TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
 
 _last_dirlog_sec = {}
+_last_ticklog_sec = {}   # epic -> last logged second (int)
 _last_close_ts = {}
 CLOSE_COOLDOWN_SEC = 2
 
@@ -107,10 +107,10 @@ SIGNAL_MOMENTUM_TOLERANCE = 2.0
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.0030   # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0050   # Trailing Stop
-TRAILING_SET_CALM_DOWN    = 0.5    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0060  # z. B. 0,2% Gewinnziel
+STOP_LOSS_PCT             = 0.0030 # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0050 # Trailing Stop
+TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TAKE_PROFIT_PCT           = 0.0060 # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0045 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
@@ -131,134 +131,8 @@ BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE
 # BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 
-
-# ==============================
-# PARAMETER CSV (Reload) – 2 Trigger: Startup + nach Close
-# ==============================
-
-PARAMETER_CSV = os.path.join(os.path.dirname(__file__), "parameter.csv")
-
-# Welche Variablen dürfen aus parameter.csv überschrieben werden?
-# (Liste bewusst explizit, damit nicht aus Versehen API_KEYS etc. überschrieben werden.)
-_PARAM_KEYS = [
-    "USE_HMA",
-    "EMA_FAST",
-    "EMA_SLOW",
-    "SIGNAL_MAX_PRICE_DISTANCE_SPREADS",
-    "SIGNAL_MOMENTUM_TOLERANCE",
-    "STOP_LOSS_PCT",
-    "TRAILING_STOP_PCT",
-    "TAKE_PROFIT_PCT",
-    "BREAK_EVEN_STOP_PCT",
-    "BREAK_EVEN_BUFFER_PCT",
-    "TRAILING_SET_CALM_DOWN",
-    "TRADE_RISK_PCT",
-    "MANUAL_TRADE_SIZE",
-]
-
-# Merker für "nur loggen, wenn sich wirklich was geändert hat"
-_PARAM_LAST_APPLIED = None  # dict | None
-
-
-def _cast_like_existing(key: str, raw_value: str):
-    """Castet raw_value grob auf den Typ der existierenden Global-Variable (ohne Plausibilitätschecks)."""
-    if key not in globals():
-        return raw_value
-
-    base = globals()[key]
-
-    # Bool ist Unterklasse von int -> Bool zuerst prüfen
-    if isinstance(base, bool):
-        v = raw_value.strip().lower()
-        if v in ("1", "true", "yes", "y", "on"):
-            return True
-        if v in ("0", "false", "no", "n", "off"):
-            return False
-        # Wenn es knallt, knallt es (oder wird vom outer try/except abgefangen)
-        raise ValueError(f"Bool erwartet für {key}, got: {raw_value!r}")
-
-    if isinstance(base, int):
-        return int(raw_value.strip())
-
-    if isinstance(base, float):
-        # DE-Notation tolerieren (Komma → Punkt), ohne weitere Checks
-        return float(raw_value.strip().replace(",", "."))
-
-    # Fallback: als String
-    return raw_value.strip()
-
-
-def load_parameters(trigger: str) -> bool:
-    """
-    Lädt parameter.csv (selber Ordner wie Script), 'letzte Zeile gewinnt',
-    und überschreibt nur bekannte _PARAM_KEYS.
-    Logging: genau 1 Zeile, aber nur wenn sich effektiv etwas geändert hat.
-
-    Return:
-      True  -> Parameter wurden geändert und angewendet
-      False -> keine Änderung (oder Datei fehlt/fehlerhaft -> bestehende Werte bleiben)
-    """
-    global _PARAM_LAST_APPLIED
-
-    path = PARAMETER_CSV
-
-    # Snapshot der aktuellen Werte (damit "keine Änderung" sauber erkannt wird)
-    current = {k: globals().get(k) for k in _PARAM_KEYS if k in globals()}
-
-    if not os.path.isfile(path):
-        # Startup: Defaults bleiben, Laufzeit: bestehende bleiben
-        print(f"⚠️ PARAM: {os.path.basename(path)} fehlt ({trigger}) → bestehende/Default-Parameter bleiben aktiv")
-        return False
-
-    updated = dict(current)
-
-    try:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            for raw in f:
-                line = raw.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if ";" not in line:
-                    raise ValueError(f"Ungültige Zeile (kein ';'): {raw!r}")
-
-                key, value = [p.strip() for p in line.split(";", 1)]
-
-                # optional: Header-Zeile ignorieren
-                if key.lower() in ("key", "param", "parameter") and value.lower() in ("value", "wert"):
-                    continue
-
-                if key not in updated:
-                    # unbekannte Keys ignorieren (kein Crash durch Tippfehler)
-                    continue
-
-                updated[key] = _cast_like_existing(key, value)
-
-    except Exception as e:
-        # Gemäß deinem Failure-Mode-Wunsch (früher): bei kaputter Datei NICHT umschalten
-        print(f"⚠️ PARAM: {os.path.basename(path)} unlesbar/kaputt ({trigger}) → keine Änderung. Grund: {e}")
-        return False
-
-    # Effektive Änderungen ermitteln (gegen "current", damit erneutes Einlesen nicht spammt)
-    changes = [(k, current.get(k), updated.get(k)) for k in updated.keys() if current.get(k) != updated.get(k)]
-    if not changes:
-        print(f"ℹ️ PARAM gelesen ({trigger}) → keine Änderungen")
-        return False
-
-
-    # Anwenden (global überschreiben)
-    for k, _old, new in changes:
-        globals()[k] = new
-
-    # Logging: genau eine Zeile
-    msg = "; ".join([f"{k} {old}→{new}" for k, old, new in changes])
-    print(f"🧩 PARAM geändert ({trigger}): {msg}")
-
-    _PARAM_LAST_APPLIED = {k: globals().get(k) for k in updated.keys()}
-    return True
-
-
-
-
+# funzt ~
+# EMA_FAST = 3, EMA_SLOW = 7, STOP_LOSS_PCT = 0.0015, TRAILING_STOP_PCT = 0.001, TAKE_PROFIT_PCT = 0.005, BREAK_EVEN_STOP = 0.000125
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
     return datetime.fromtimestamp(ms_since_epoch/1000, tz=timezone.utc).astimezone(LOCAL_TZ)
@@ -520,7 +394,7 @@ def on_candle_forming(epic, bar, ts_ms):
     low_bid = bar.get("low_bid")
 
     if high_ask is not None and low_bid is not None:
-        spread = (high_ask - low_bid) / max(1, bar["ticks"])
+        spread = (close_ask - close_bid) if (close_ask is not None and close_bid is not None) else 0.0
     else:
         spread = 0.0
 
@@ -684,9 +558,7 @@ def on_candle_close(epic, bar):
     candle_history[epic].append(mid_price)
 
     # === 2️⃣ Spread berechnen (reale Marktspanne) ===
-    high_ask = bar.get("high_ask") or bar.get("high")
-    low_bid = bar.get("low_bid") or bar.get("low")
-    spread = (high_ask - low_bid) / max(1, bar.get("ticks", 1)) if high_ask and low_bid else 0.0
+    spread = (bar.get("close_ask") - bar.get("close_bid")) if (bar.get("close_ask") is not None and bar.get("close_bid") is not None) else 0.0
 
     # === 3️⃣ Handelssignal auswerten ===
     signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
@@ -1004,9 +876,6 @@ def safe_close(CST, XSEC, epic, deal_id=None):
                 print(f"✅ [{epic}] Deal {deal_id} ist aus get_positions() verschwunden.")
         except Exception as e:
             print(f"⚠️ [{epic}] Abgleich nach Close fehlgeschlagen:", e)
-
-        load_parameters(f"after_close:{epic}")
-
     else:
         print(f"⚠️ [{epic}] Close fehlgeschlagen (dealId={deal_id})")
 
@@ -1414,11 +1283,29 @@ async def run_candle_aggregator_per_instrument():
                     # ticks in datei schreiben
                     filename = f"ticks_{epic}.csv"
                     try:
-                        with open(filename, "a", encoding="utf-8", newline="") as f:
-                            # Dezimalpunkt bleibt so, Komma kannst du später im Editor/Excel ersetzen
-                            f.write(f"{ts_ms};{bid};{ask}\n")
+                        # Position offen? -> volle Tickauflösung beibehalten
+                        in_trade = isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price") is not None
+
+                        # Optional: letzter 1s jeder Minute auch voll loggen (für Candle-Close-Fidelity)
+                        full_log = in_trade or ((ts_ms % 60000) >= 59000)
+
+                        full_log = True  # TEMP: alle Ticks loggen
+
+                        do_write = False
+                        if full_log:
+                            do_write = True
+                        else:
+                            sec = ts_ms // 1000
+                            last_sec = _last_ticklog_sec.get(epic)
+                            if last_sec != sec:
+                                _last_ticklog_sec[epic] = sec
+                                do_write = True
+
+                        if do_write:
+                            with open(filename, "a", encoding="utf-8", newline="") as f:
+                                f.write(f"{ts_ms};{bid};{ask}\n")
+
                     except Exception as e:
-                        # I/O-Fehler sollen den Bot nicht abschießen
                         print(f"⚠️ Tick-Log-Fehler {epic}: {e}")
                     # datei ende
 
@@ -1570,8 +1457,6 @@ if __name__ == "__main__":
         print("  UTC now    :", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M:%S UTC"))
         test_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         print("  to_local_dt:", to_local_dt(test_ms).strftime("%d.%m.%Y %H:%M:%S %Z"))
-
-        load_parameters("startup")
 
         asyncio.run(run_candle_aggregator_per_instrument())
     except KeyboardInterrupt:
