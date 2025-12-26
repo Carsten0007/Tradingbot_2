@@ -74,8 +74,8 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
 
-EMA_FAST = 3 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
-EMA_SLOW = 8 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
+EMA_FAST = 10 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
+EMA_SLOW = 18 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
 
 TRADE_RISK_PCT = 0.0025  # 2% vom verfügbaren Kapital pro Trade
 MANUAL_TRADE_SIZE = 0.3 # ETHUSD 0.3 ~1000€, XRPUSD 400 ~1000€, BTCUSD 0.01 ~1000€
@@ -101,7 +101,7 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
 #   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
-SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 7.0
+SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 
 # Momentum-Toleranz für Trend-Signale:
 # Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
@@ -116,18 +116,18 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 7.0
 #   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
 #     Signale nach Momentum-Einbruch werden ignoriert.
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
-SIGNAL_MOMENTUM_TOLERANCE = 0.7
+SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
 # ==============================
 # Risk Management Parameter
 # ==============================
 # ETHUSD/ETHEUR
-STOP_LOSS_PCT             = 0.0018   # fester Stop-Loss
-TRAILING_STOP_PCT         = 0.0010   # Trailing Stop
-TRAILING_SET_CALM_DOWN    = 0.0    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
-TAKE_PROFIT_PCT           = 0.0220  # z. B. 0,2% Gewinnziel
-BREAK_EVEN_STOP_PCT       = 0.0001 # sicherung der Null-Schwelle / kein Verlust mehr möglich
-BREAK_EVEN_BUFFER_PCT     = 0.0001 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
+STOP_LOSS_PCT             = 0.0030   # fester Stop-Loss
+TRAILING_STOP_PCT         = 0.0050   # Trailing Stop
+TRAILING_SET_CALM_DOWN    = 0.5    # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TAKE_PROFIT_PCT           = 0.0060  # z. B. 0,2% Gewinnziel
+BREAK_EVEN_STOP_PCT       = 0.0045 # sicherung der Null-Schwelle / kein Verlust mehr möglich
+BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 # XRPUSD
 # STOP_LOSS_PCT           = 0.015   # fester Stop-Loss
