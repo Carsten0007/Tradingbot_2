@@ -700,6 +700,12 @@ def on_candle_close(epic, bar):
     else:
         entry_price = mid_price   # kein Trade → Mid-Preis als Dummy
 
+    # 🧩 PARAM Reload pro Candle-Close – aber nur wenn kein Trade offen ist
+    pos = open_positions.get(epic)
+    in_trade = isinstance(pos, dict) and pos.get("direction") and pos.get("entry_price") is not None
+    if not in_trade:
+        load_parameters(f"before_decision:{epic}")
+
     decide_and_trade(CST, XSEC, epic, signal, entry_price)
 
     # === 5️⃣ Nur mit ausreichender Historie EMA/HMA berechnen ===
