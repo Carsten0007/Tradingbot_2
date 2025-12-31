@@ -1387,8 +1387,8 @@ async def run_candle_aggregator_per_instrument():
                         bid   = float(p["bid"])
                         ask   = float(p["ofr"])
                         ts_ms = int(p["timestamp"])
-                        if 980 <= (ts_ms % 1000) <= 999:
-                            print(f"[SK1 tick] ts_ms={ts_ms}  local={to_local_dt(ts_ms).strftime('%H:%M:%S.%f')[:-3]}")
+                        # if 980 <= (ts_ms % 1000) <= 999: # aktuelle tick zeit in local ausgebe
+                        #     print(f"[SK1 tick] ts_ms={ts_ms}  local={to_local_dt(ts_ms).strftime('%H:%M:%S.%f')[:-3]}")
 
                     except Exception:
                         continue
