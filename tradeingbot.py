@@ -103,6 +103,8 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
+TRADE_BARRIER = 1 # Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+
 # ==============================
 # Risk Management Parameter
 # ==============================
@@ -924,10 +926,12 @@ def evaluate_trend_signal(epic, closes, spread):
 
     # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
     # Trend-Logik: Fast > Slow → Aufwärtstrend → BUY
-    if ma_fast > ma_slow and (last_close - prev_close) > 2 * spread:
+    # Ein Trade wird nur dann als „BEREIT: BUY/SELL“ markiert, wenn die Änderung
+    # zwischen zwei aufeinanderfolgenden Candle-Closes größer ist als 2×Spread:
+    if ma_fast > ma_slow and (last_close - prev_close) > TRADE_BARRIER * spread:
         return f"BEREIT: BUY ✅ ({ma_type})"
     # Umgekehrt: Fast < Slow → Abwärtstrend → SELL
-    elif ma_fast < ma_slow and (prev_close - last_close) > 2 * spread:
+    elif ma_fast < ma_slow and (prev_close - last_close) > TRADE_BARRIER * spread:
         return f"BEREIT: SELL ⛔ ({ma_type})"
     # Kein klares Signal
     else:
