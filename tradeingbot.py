@@ -60,7 +60,7 @@ RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine
 # ==============================
 # # --- Laufzeit / Profiling ---
 # ==============================
-ENABLE_PROFILING = True
+ENABLE_PROFILING = False
 PROFILE_OUT_FILE = "profile_bot_1.txt"
 
 # ==============================
@@ -111,8 +111,8 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
-# besser MIN_CLOSE_DELTA_SPREADS
-TRADE_BARRIER = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+# vorher TRADE_BARRIER
+MIN_CLOSE_DELTA_SPREADS = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
 
 # ==============================
 # Risk Management Parameter
@@ -156,7 +156,7 @@ _PARAM_KEYS = [
     "EMA_SLOW",
     "SIGNAL_MAX_PRICE_DISTANCE_SPREADS",
     "SIGNAL_MOMENTUM_TOLERANCE",
-    "TRADE_BARRIER",
+    "MIN_CLOSE_DELTA_SPREADS",
     "STOP_LOSS_PCT",
     "TRAILING_STOP_PCT",
     "TAKE_PROFIT_PCT",
@@ -938,10 +938,10 @@ def evaluate_trend_signal(epic, closes, spread):
     # Trend-Logik: Fast > Slow → Aufwärtstrend → BUY
     # Ein Trade wird nur dann als „BEREIT: BUY/SELL“ markiert, wenn die Änderung
     # zwischen zwei aufeinanderfolgenden Candle-Closes größer ist als 2×Spread:
-    if ma_fast > ma_slow and (last_close - prev_close) > TRADE_BARRIER * spread:
+    if ma_fast > ma_slow and (last_close - prev_close) > MIN_CLOSE_DELTA_SPREADS * spread:
         return f"BEREIT: BUY ✅ ({ma_type})"
     # Umgekehrt: Fast < Slow → Abwärtstrend → SELL
-    elif ma_fast < ma_slow and (prev_close - last_close) > TRADE_BARRIER * spread:
+    elif ma_fast < ma_slow and (prev_close - last_close) > MIN_CLOSE_DELTA_SPREADS * spread:
         return f"BEREIT: SELL ⛔ ({ma_type})"
     # Kein klares Signal
     else:
