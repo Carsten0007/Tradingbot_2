@@ -103,7 +103,7 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
-TRADE_BARRIER = 1 # Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+TRADE_BARRIER = 2 # ur 2, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
 
 # ==============================
 # Risk Management Parameter
