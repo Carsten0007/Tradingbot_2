@@ -6,6 +6,8 @@ import requests
 import asyncio
 import websockets
 import time
+import cProfile
+import pstats
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
@@ -53,7 +55,13 @@ CST, XSEC = None, None
 # ==============================
 PING_INTERVAL    = 15   # Sekunden zwischen WebSocket-Pings
 RECONNECT_DELAY  = 3    # Sekunden warten nach Verbindungsabbruch
-RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine Nachricht
+RECV_TIMEOUT     = 60   # Sekunden Timeout fürs Warten auf eine 
+
+# ==============================
+# # --- Laufzeit / Profiling ---
+# ==============================
+ENABLE_PROFILING = True
+PROFILE_OUT_FILE = "profile_bot_1.txt"
 
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
@@ -103,7 +111,8 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
-TRADE_BARRIER = 2.0 # ur 2, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+# besser MIN_CLOSE_DELTA_SPREADS
+TRADE_BARRIER = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
 
 # ==============================
 # Risk Management Parameter
@@ -1587,6 +1596,9 @@ async def run_candle_aggregator_per_instrument():
 # ==============================
 
 if __name__ == "__main__":
+
+    pr = None
+
     try:
         print("Startup sanity:")
         print("  Local now  :", datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M:%S %Z"))
@@ -1594,11 +1606,25 @@ if __name__ == "__main__":
         test_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         print("  to_local_dt:", to_local_dt(test_ms).strftime("%d.%m.%Y %H:%M:%S %Z"))
 
+        if ENABLE_PROFILING:
+            pr = cProfile.Profile()
+            pr.enable()
+
         load_parameters("startup")
 
         asyncio.run(run_candle_aggregator_per_instrument())
     except KeyboardInterrupt:
         print("\n🛑 Manuell abgebrochen (Ctrl+C erkannt)")
+
+        if pr is not None:
+            try:
+                pr.disable()
+                with open(PROFILE_OUT_FILE, "w", encoding="utf-8") as f:
+                    pstats.Stats(pr, stream=f).sort_stats("cumtime").print_stats(80)
+                print(f"cProfile geschrieben: {PROFILE_OUT_FILE}")
+            except Exception as e:
+                print(f"⚠️ Profiling-Fehler: {e}")
+
         try:
             import matplotlib.pyplot as plt
             plt.close("all")
