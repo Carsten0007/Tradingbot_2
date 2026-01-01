@@ -103,7 +103,7 @@ SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 #   - großer Wert (1.0): Filter praktisch deaktiviert.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
-TRADE_BARRIER = 2 # ur 2, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+TRADE_BARRIER = 2.0 # ur 2, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
 
 # ==============================
 # Risk Management Parameter
@@ -111,7 +111,7 @@ TRADE_BARRIER = 2 # ur 2, Wert * spread zwischen zwei aufeinanderfolgenden Candl
 # ETHUSD/ETHEUR
 STOP_LOSS_PCT             = 0.0030 # fester Stop-Loss
 TRAILING_STOP_PCT         = 0.0050 # Trailing Stop
-TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN)
+TRAILING_SET_CALM_DOWN    = 0.5000 # Filter für Trailing-Nachzie-Schwelle (spread*TRAILING_SET_CALM_DOWN) / Rauschfilter
 TAKE_PROFIT_PCT           = 0.0060 # z. B. 0,2% Gewinnziel
 BREAK_EVEN_STOP_PCT       = 0.0045 # sicherung der Null-Schwelle / kein Verlust mehr möglich
 BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
@@ -147,6 +147,7 @@ _PARAM_KEYS = [
     "EMA_SLOW",
     "SIGNAL_MAX_PRICE_DISTANCE_SPREADS",
     "SIGNAL_MOMENTUM_TOLERANCE",
+    "TRADE_BARRIER",
     "STOP_LOSS_PCT",
     "TRAILING_STOP_PCT",
     "TAKE_PROFIT_PCT",
