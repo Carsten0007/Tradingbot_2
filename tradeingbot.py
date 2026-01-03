@@ -22,7 +22,7 @@ init(autoreset=True)
 TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
 
-_last_dirlog_sec = {}
+# _last_dirlog_sec = {} # 03.01.2026, kommentiert
 _last_ticklog_sec = {}   # epic -> last logged second (int)
 _last_close_ts = {}
 CLOSE_COOLDOWN_SEC = 2
@@ -96,19 +96,26 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
 SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
 
-# Momentum-Toleranz für Trend-Signale:
-# Gibt an, wie stark das aktuelle Momentum gegenüber der vorherigen Kerze
-# nachlassen darf, bevor ein BUY/SELL-Signal verworfen wird.
+# Momentum-Faktor für Trend-Signale (Relativ-Check Kerze N vs. Kerze N-1):
+# Implementierung prüft (vereinfacht):
+#   momentum_now  = close[-1] - close[-2]
+#   momentum_prev = close[-2] - close[-3]
 #
-# Beispiel:
-#   SIGNAL_MOMENTUM_TOLERANCE = 0.2
-#   → momentum_now muss mindestens 20 % von momentum_prev erreichen,
-#     sonst wird das Signal als "Momentum schwach" auf HOLD gesetzt.
+# LONG (ma_fast > ma_slow):
+#   HOLD, wenn momentum_now < momentum_prev * SIGNAL_MOMENTUM_TOLERANCE
+#   → Zulassen nur, wenn momentum_now >= momentum_prev * Faktor
 #
-# Wirkung:
-#   - kleiner Wert (0.1–0.3): nur "frische" Trends werden gehandelt,
-#     Signale nach Momentum-Einbruch werden ignoriert.
-#   - großer Wert (1.0): Filter praktisch deaktiviert.
+# SHORT (ma_fast < ma_slow):
+#   HOLD, wenn momentum_now > momentum_prev * SIGNAL_MOMENTUM_TOLERANCE
+#
+# Interpretation (nur sinnvoll, wenn momentum_prev > 0):
+#   Faktor = 0.2  → aktuelle Bewegung muss mind. 20% der vorherigen erreichen (lockerer Filter)
+#   Faktor = 1.0  → aktuelle Bewegung muss mind. 100% der vorherigen erreichen (strenger Filter)
+#   Faktor > 1.0  → aktuelle Bewegung muss stärker als zuvor sein (sehr streng)
+#
+# Hinweis:
+#   Wenn momentum_prev <= 0, ist die Interpretation als "Prozent von vorher" nicht stabil,
+#   weil Vorzeichenwechsel möglich sind (Pullback-Kerzen). Dann wirkt der Check anders.
 SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
 # vorher TRADE_BARRIER
@@ -914,14 +921,21 @@ def evaluate_trend_signal(epic, closes, spread):
     #     momentum_now sollte <= momentum_prev sein.
     #     Wenn momentum_now deutlich größer ist, verliert der Abwärtstrend an Stärke → kein Entry.
     #
-    # Die Faktoren (hier *-100 / *100) sind testweise extrem groß gewählt,
-    # um den Filter faktisch zu deaktivieren (ursprünglich 0.1 = 10 % Schwächungstoleranz).
-    # Mit realistischen Faktoren (z. B. 0.1 oder 0.2) reagiert der Filter sensibler
-    # und unterdrückt Einstiege, wenn der Trend an Schwung verliert.
-    # 0.05	Momentum_now < 5 % von Momentum_prev → sehr empfindlich	kaum Trades, sehr vorsichtig
-    # 0.1	Momentum_now < 10 % → moderat	mittlere Tradefreudigkeit
-    # 0.3	Momentum_now < 30 % → tolerant	häufiger Trades
-    # 1.0	Momentum_now < 100 % → praktisch deaktiviert	fast jeder Trend erlaubt
+    # SIGNAL_MOMENTUM_TOLERANCE ist hier ein Faktor im Relativ-Check:
+    # LONG:  HOLD, wenn momentum_now < momentum_prev * Faktor
+    # SHORT: HOLD, wenn momentum_now > momentum_prev * Faktor
+    #
+    # Interpretation (nur robust bei momentum_prev > 0):
+    #   0.05  → aktuelle Bewegung < 5% der vorherigen  → sehr strenger Filter (viele HOLDs)
+    #   0.10  → aktuelle Bewegung < 10%               → strenger Filter
+    #   0.30  → aktuelle Bewegung < 30%               → lockerer Filter
+    #   1.00  → aktuelle Bewegung < 100%              → sehr streng (muss mind. so stark sein wie zuvor)
+    #   >1.0  → aktuelle Bewegung muss stärker sein   → extrem streng
+    #
+    # Hinweis:
+    # Bei momentum_prev <= 0 (z. B. Pullback-Kerze) ist "x% von vorher" nicht stabil,
+    # weil Vorzeichenwechsel möglich sind. Der Check wirkt dann anders als eine Prozentlogik.
+
     if ma_fast > ma_slow and momentum_now < momentum_prev * SIGNAL_MOMENTUM_TOLERANCE : # 0.1
         # print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
         return f"HOLD (Momentum schwach, {ma_type})"
@@ -1088,9 +1102,10 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
     now_sec = int(time.time())
     
-    if _last_dirlog_sec.get(epic) != now_sec:
-        print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
-        _last_dirlog_sec[epic] = now_sec
+    # 03.01.2026 12:10, kommentiert
+    # if _last_dirlog_sec.get(epic) != now_sec:
+    #     print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
+    #     _last_dirlog_sec[epic] = now_sec
 
     # === LONG ===
     if direction == "BUY":
