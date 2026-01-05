@@ -25,6 +25,7 @@ class ChartManager:
         self.flush_min_interval_ms = 200   # nur alle ≥200 ms flushen
         self._last_flush_ms = {}           # epic -> letzter flush (ms, monotonic)
         self.ffill_max_gap_ms = 900   # nach 0.9s ohne neuen Tick NICHT mehr halten
+        self._ylim_cache = {}   # epic -> (ymin, ymax)
 
         plt.ion()  # Interaktiver Modus aktiv
 
@@ -229,6 +230,7 @@ class ChartManager:
         fig.canvas.manager.set_window_title(f"{epic} – Live Chart")
         ax.set_title(f"Live Chart – {epic}")
         self._title_cache[epic] = {"text": f"Live Chart – {epic}", "color": None}
+        self._ylim_cache[epic] = None
         ax.set_xlabel("Zeit")
         ax.set_ylabel("Preis")
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S", tz=self.tz))
@@ -423,8 +425,20 @@ class ChartManager:
         if ymins:
             ymin, ymax = min(ymins), max(ymaxs)
             padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
-            ax.set_ylim(ymin - padding, ymax + padding)
+            if ymins:
+                ymin, ymax = min(ymins), max(ymaxs)
+                padding = (ymax - ymin) * 0.05 if ymax > ymin else 0.01
 
+                new_ylim = (ymin - padding, ymax + padding)
+                old_ylim = self._ylim_cache.get(epic)
+
+                # kleine Toleranz, damit nicht wegen Rundungsrauschen ständig gesetzt wird
+                eps = 1e-6
+                if (old_ylim is None
+                    or abs(new_ylim[0] - old_ylim[0]) > eps
+                    or abs(new_ylim[1] - old_ylim[1]) > eps):
+                    ax.set_ylim(new_ylim[0], new_ylim[1])
+                    self._ylim_cache[epic] = new_ylim
 
         # 🟩 Entry-Linie über das aktuelle Fenster – aus Cache
         if isinstance(last_entry, (int, float)):
