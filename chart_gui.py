@@ -52,9 +52,9 @@ class ChartManager:
             try:
                 from tradeingbot import to_local_dt
                 now = to_local_dt(ts_ms)
-                skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
-                if abs(skew) > 1 and 980 <= (ts_ms % 1000) <= 999:
-                    print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
+                # skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
+                # if abs(skew) > 1 and 980 <= (ts_ms % 1000) <= 999:
+                #     print(f"[Chart DEBUG] Clock skew vs tick: {skew:+.2f}s")
 
             except ImportError:
                 # Fallback trotzdem TZ-aware (lokale Europe/Berlin)
@@ -115,7 +115,10 @@ class ChartManager:
                 "direction": pos.get("direction"),
             })
 
-
+            # ✅ Safe Guard: Datenpuffer auf sichtbares Fenster begrenzen (unsichtbare Altlasten entfernen)
+            cutoff = now - dt.timedelta(seconds=self.window + 5)  # +5s Puffer
+            while len(dq) > 2 and dq[0]["time"] < cutoff:
+                dq.popleft()
 
             # 🕒 Time-Sync-Fix – Datenpunkte chronologisch halten
             # Falls ein verspäteter Tick kommt, sortieren wir die deque neu
