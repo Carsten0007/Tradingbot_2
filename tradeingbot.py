@@ -638,49 +638,6 @@ def on_candle_forming(epic, bar, ts_ms):
     trend=trend   # 🧭 Trend-String mitgeben für Pfeil im Titel
 )
 
-# ==============================
-# Horizontalität berechnen (0-1)
-# ==============================
-
-def directionality_factor(epic: str, window_sec: int = 180, min_samples: int = 40) -> float:
-    # Vertikalitäts-Faktor ∈ [0, 1] für ein Instrument.
-    #   0.0 = horizontal / seitwärts
-    #   1.0 = starker Trend
-    #  -1.0 = kein Buffer / keine Datenzu / wenig Daten → Sentinel
-    dq = TICK_RING.get(epic)
-    if not dq:
-        return -1.0  # kein Buffer / keine Daten → Sentinel
-
-    newest_ts = dq[-1][0]
-    cut_ts = newest_ts - int(window_sec * 1000)
-
-    # Von hinten sammeln, None-Werte filtern, deque NICHT verändern
-    seg_prices_rev = []
-    for ts, mid in reversed(dq):
-        if ts < cut_ts:
-            break
-        if mid is not None:
-            seg_prices_rev.append(float(mid))
-
-    if len(seg_prices_rev) < min_samples:
-        return -1.0  # zu wenig Daten → Sentinel
-
-    prices = list(reversed(seg_prices_rev))
-
-    # Trend/Chop-Heuristik
-    diffs = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    chop = sum(abs(d) for d in diffs)
-    if chop <= 0:
-        return 0.0  # komplett flach → kein Trend
-
-    trend = abs(sum(diffs))
-    v = trend / chop  # 0..1
-
-    # clamp
-    return 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
-
-
-
 def on_candle_close(epic, bar):
     # Wird bei Abschluss jeder 1m-Kerze aufgerufen.
 
@@ -1101,12 +1058,7 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
     ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
     now_sec = int(time.time())
-    
-    # 03.01.2026 12:10, kommentiert
-    # if _last_dirlog_sec.get(epic) != now_sec:
-    #     print(f"🧭 [{epic}] directionality(60s) = {directionality_factor(epic):.2f}")
-    #     _last_dirlog_sec[epic] = now_sec
-
+      
     # === LONG ===
     if direction == "BUY":
         stop_loss_level = entry * (1 - STOP_LOSS_PCT)
