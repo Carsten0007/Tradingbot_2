@@ -549,7 +549,7 @@ def on_candle_forming(epic, bar, ts_ms):
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
 
-    mid_open  = (open_bid + open_ask) / 2.0 if (open_bid is not None and open_ask is not None) else None
+    mid_open = (open_bid + open_ask) / 2.0 if (open_bid is not None and open_ask is not None) else None
     mid_close = (close_bid + close_ask) / 2.0 if (close_bid is not None and close_ask is not None) else None
 
     # Hinweis:
@@ -587,18 +587,8 @@ def on_candle_forming(epic, bar, ts_ms):
     sl_str = f"{sl:.2f}" if isinstance(sl, (int, float)) else "-"
     ts_str = f"{ts:.2f}" if isinstance(ts, (int, float)) else "-"
     tp_str = f"{tp:.2f}" if isinstance(tp, (int, float)) else "-"
-
-    # 🧾 Konsistente Ausgabe mit Bid/Ask-Werten
-    open_bid = bar.get("open_bid")
-    open_ask = bar.get("open_ask")
-    close_bid = bar.get("close_bid")
-    close_ask = bar.get("close_ask")
-
-    # Midpreise nur für visuelle Ausgabe berechnen
-    mid_open = (open_bid + open_ask) / 2 if open_bid and open_ask else None
-    mid_close = (close_bid + close_ask) / 2 if close_bid and close_ask else None
-
-    if mid_open and mid_close:
+    
+    if mid_open is not None and mid_close is not None:
         print(
             f"[{epic}] {local_time} - "
             f"O:{mid_open:.2f} C:{mid_close:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
