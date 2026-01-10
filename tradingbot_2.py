@@ -516,6 +516,7 @@ def on_candle_forming(epic, bar, ts_ms):
     close_ask = bar.get("close_ask")
     mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else None
     closes = list(candle_history[epic]) + [mid_price]
+    closes = [v for v in closes if v is not None]
 
     # Ringpuffer füttern (Mid über close_bid/close_ask des aktuellen Ticks)
     if mid_price is not None:
@@ -651,7 +652,9 @@ def on_candle_close(epic, bar):
     spread = (bar.get("close_ask") - bar.get("close_bid")) if (bar.get("close_ask") is not None and bar.get("close_bid") is not None) else 0.0
 
     # === 3️⃣ Handelssignal auswerten ===
-    signal = evaluate_trend_signal(epic, list(candle_history[epic]), spread)
+    closes = [v for v in candle_history[epic] if v is not None]
+    signal = evaluate_trend_signal(epic, closes, spread)
+
 
     print(
         f"📊 Trend-Signal [{epic}] — "
