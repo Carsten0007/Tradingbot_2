@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from collections import deque
 from colorama import Fore, Style, init
-from chart_gui import ChartManager
+from chart_gui_2 import ChartManager
 
 # Alle externen Timestamps kommen als UTC ms und werden ausschließlich via to_local_dt() benutzt.
 charts = ChartManager(window_size_sec=300)
@@ -94,32 +94,13 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 #   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
 #   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
 #   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
-SIGNAL_MAX_PRICE_DISTANCE_SPREADS = 4.0
+PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS = 4.0
+PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS = 6.0
 
-# Momentum-Faktor für Trend-Signale (Relativ-Check Kerze N vs. Kerze N-1):
-# Implementierung prüft (vereinfacht):
-#   momentum_now  = close[-1] - close[-2]
-#   momentum_prev = close[-2] - close[-3]
-#
-# LONG (ma_fast > ma_slow):
-#   HOLD, wenn momentum_now < momentum_prev * SIGNAL_MOMENTUM_TOLERANCE
-#   → Zulassen nur, wenn momentum_now >= momentum_prev * Faktor
-#
-# SHORT (ma_fast < ma_slow):
-#   HOLD, wenn momentum_now > momentum_prev * SIGNAL_MOMENTUM_TOLERANCE
-#
-# Interpretation (nur sinnvoll, wenn momentum_prev > 0):
-#   Faktor = 0.2  → aktuelle Bewegung muss mind. 20% der vorherigen erreichen (lockerer Filter)
-#   Faktor = 1.0  → aktuelle Bewegung muss mind. 100% der vorherigen erreichen (strenger Filter)
-#   Faktor > 1.0  → aktuelle Bewegung muss stärker als zuvor sein (sehr streng)
-#
-# Hinweis:
-#   Wenn momentum_prev <= 0, ist die Interpretation als "Prozent von vorher" nicht stabil,
-#   weil Vorzeichenwechsel möglich sind (Pullback-Kerzen). Dann wirkt der Check anders.
-SIGNAL_MOMENTUM_TOLERANCE = 2.0
 
 # vorher TRADE_BARRIER
-MIN_CLOSE_DELTA_SPREADS = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+CONFIRM_MIN_CLOSE_DELTA_SPREADS = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+REGIME_MIN_DIRECTIONALITY = 0.35
 
 # ==============================
 # Risk Management Parameter
@@ -149,6 +130,16 @@ BREAK_EVEN_BUFFER_PCT     = 0.0002 # Puffer über BREAK_EVEN_STOP, ab dem der BE
 # BREAK_EVEN_BUFFER_PCT   = 0.0001    # Puffer über BREAK_EVEN_STOP, ab dem der BE auf BREAK_EVEN_STOP gesetzt wird
 
 
+# --------------------------------------------
+# Pullback/Retest State pro Instrument (Variante 1)
+# --------------------------------------------
+_TREND_STATE = {}  # epic -> {"state": str, "dir": "LONG"/"SHORT"/None, "armed": bool}
+
+
+
+
+
+
 # ==============================
 # PARAMETER CSV (Reload) – 2 Trigger: Startup + nach Close
 # ==============================
@@ -161,9 +152,10 @@ _PARAM_KEYS = [
     "USE_HMA",
     "EMA_FAST",
     "EMA_SLOW",
-    "SIGNAL_MAX_PRICE_DISTANCE_SPREADS",
-    "SIGNAL_MOMENTUM_TOLERANCE",
-    "MIN_CLOSE_DELTA_SPREADS",
+    "PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS",
+    "PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS",
+    "CONFIRM_MIN_CLOSE_DELTA_SPREADS",
+    "REGIME_MIN_DIRECTIONALITY"
     "STOP_LOSS_PCT",
     "TRAILING_STOP_PCT",
     "TAKE_PROFIT_PCT",
@@ -794,129 +786,137 @@ def hma(values, period: int):
 
 def evaluate_trend_signal(epic, closes, spread):
     # ------------------------------
-    #  1️⃣ Berechnung der gleitenden Mittelwerte
-    # Immer beide berechnen
+    #  1) Gleitende Mittelwerte (wie bisher)
     # ------------------------------
     ema_fast = ema(closes, EMA_FAST)
     ema_slow = ema(closes, EMA_SLOW)
     hma_fast = hma(closes, EMA_FAST)
     hma_slow = hma(closes, EMA_SLOW)
 
-    # Auswahl, ob HMA oder EMA aktiv verwendet wird
     if USE_HMA:
         ma_fast, ma_slow, ma_type = hma_fast, hma_slow, "HMA"
     else:
         ma_fast, ma_slow, ma_type = ema_fast, ema_slow, "EMA"
 
-    # Wenn noch nicht genug Kerzen vorhanden → kein valides Signal
     if ma_fast is None or ma_slow is None:
         return f"HOLD (zu wenig Daten: {len(closes)}/{EMA_SLOW})"
+
+    # Sicherheitscheck (Spread kann in Sonderfällen 0/None sein)
+    if spread is None or spread <= 0:
+        return f"HOLD (Spread ungültig)"
 
     last_close = closes[-1]
     prev_close = closes[-2]
 
-    # ======================================================
-    #  2️⃣ ENTRY-FILTER: Vermeide späte oder schwache Signale
-    # ======================================================
+    # ------------------------------
+    #  2) RegimeGate: Directionality (TREND vs CHOP)
+    #     Fensterlänge an EMA_SLOW gekoppelt (kein neuer Parameter)
+    # ------------------------------
+    N = int(EMA_SLOW)
+    if len(closes) < N + 1:
+        return f"HOLD (zu wenig Daten für Regime: {len(closes)}/{N+1})"
 
-    # --- Preis-vs-MA-Filter: Verhindert Einstiege bei überdehnten Bewegungen / wenn der Kurs zu weit vom MA entfernt ist
-    #
-    # Ziel:
-    # Kein Entry, wenn der aktuelle Kurs (last_close) zu weit
-    # vom kurzfristigen gleitenden Durchschnitt (ma_fast) entfernt liegt.
-    #
-    # Hintergrund:
-    # - Wenn der Kurs stark über oder unter dem MA liegt,
-    #   befindet sich der Markt meist am "Wellenkamm" oder "Boden".
-    # - In solchen Phasen kommt es häufig zu kurzfristigen Gegenbewegungen (Pullbacks).
-    # - Der Filter soll daher nur Einstiege erlauben,
-    #   solange der Kurs sich noch in vertretbarer Nähe zum Trendmittelwert bewegt.
-    #
-    # Berechnung:
-    # distance = absolute Abweichung zwischen Kurs und MA
-    # max_distance = zulässige maximale Abweichung, proportional zur aktuellen Spanne (spread)
-    #
-    # Ist die Abweichung größer als max_distance → kein Einstieg.
-    #
-    # Hinweis:
-    # Der Faktor ist aktuell extrem hoch (100), um den Filter faktisch zu deaktivieren.
-    # Realistisch wäre z. B. 1.0–2.0 für einen wirksamen Schutz vor Spät-Entries.
-    # distance misst, wie weit der Kurs vom gleitenden Durchschnitt entfernt ist.
-    # max_distance ist die erlaubte maximale Abweichung.
-    # Wenn der Kurs weiter weg ist als max_distance, wird kein Trade gemacht („überdehnt“).
-    # 1.0	sehr vorsichtig	nur Entries nah am MA erlaubt
-    # 2.0	moderat	kleine Überdehnungen noch erlaubt
-    # 4.0	locker	Kurs darf deutlich vom MA entfernt sein
-    # 100	praktisch deaktiviert	Kursabstand spielt keine Rolle
-    distance = abs(last_close - ma_fast)
-    max_distance = spread * SIGNAL_MAX_PRICE_DISTANCE_SPREADS   # 8 Faktor anpassbar (1.0–2.0 typisch)
+    start_idx = -N - 1
+    net_move = abs(closes[-1] - closes[start_idx])
 
-    if distance > max_distance:
-        now_ms = int((time.time() * 1000) % 1000)  # Millisekunden-Anteil der Sekunde
-        if 980 <= now_ms <= 999:
-            print(f"[{epic}] Preis zu weit vom {ma_type} entfernt "
-                f"(dist={distance:.5f}) → kein Entry")
-        return f"HOLD (überdehnt, {ma_type})"
+    total_move = 0.0
+    for i in range(start_idx + 1, 0):
+        total_move += abs(closes[i] - closes[i - 1])
 
-    # --- Momentum-Filter: prüft Beschleunigung der Kursbewegung
-    # Wenn der gleitende Durchschnitt (MA) einen Trend anzeigt,
-    # soll die aktuelle Preisbewegung (momentum_now) diesen Trend bestätigen.
-    # Nur handeln, wenn aktueller MA sich schneller bewegt als zuvor / wenn aktuelle Bewegung zunimmt
-    # → Annäherung über Differenz zweier aufeinanderfolgender Closes
+    directionality = (net_move / total_move) if total_move > 0 else 0.0
 
-    # momentum_now  = letzte Preisänderung (aktueller Impuls)
-    # momentum_prev = vorherige Preisänderung (vorheriger Impuls)
-    momentum_now = last_close - prev_close
-    momentum_prev = prev_close - closes[-3]
+    if directionality < REGIME_MIN_DIRECTIONALITY:
+        # Regime = CHOP → State resetten und nicht handeln
+        _TREND_STATE[epic] = {"state": "WAIT_TREND", "dir": None, "armed": False}
+        return f"HOLD (CHOP dir={directionality:.2f})"
 
-    # Idee:
-    # - Bei steigendem Trend (ma_fast > ma_slow):
-    #     momentum_now sollte >= momentum_prev sein.
-    #     Wenn momentum_now deutlich kleiner ist, flacht der Trend ab → kein Entry.
-    #
-    # - Bei fallendem Trend (ma_fast < ma_slow):
-    #     momentum_now sollte <= momentum_prev sein.
-    #     Wenn momentum_now deutlich größer ist, verliert der Abwärtstrend an Stärke → kein Entry.
-    #
-    # SIGNAL_MOMENTUM_TOLERANCE ist hier ein Faktor im Relativ-Check:
-    # LONG:  HOLD, wenn momentum_now < momentum_prev * Faktor
-    # SHORT: HOLD, wenn momentum_now > momentum_prev * Faktor
-    #
-    # Interpretation (nur robust bei momentum_prev > 0):
-    #   0.05  → aktuelle Bewegung < 5% der vorherigen  → sehr strenger Filter (viele HOLDs)
-    #   0.10  → aktuelle Bewegung < 10%               → strenger Filter
-    #   0.30  → aktuelle Bewegung < 30%               → lockerer Filter
-    #   1.00  → aktuelle Bewegung < 100%              → sehr streng (muss mind. so stark sein wie zuvor)
-    #   >1.0  → aktuelle Bewegung muss stärker sein   → extrem streng
-    #
-    # Hinweis:
-    # Bei momentum_prev <= 0 (z. B. Pullback-Kerze) ist "x% von vorher" nicht stabil,
-    # weil Vorzeichenwechsel möglich sind. Der Check wirkt dann anders als eine Prozentlogik.
-
-    if ma_fast > ma_slow and momentum_now < momentum_prev * SIGNAL_MOMENTUM_TOLERANCE : # 0.1
-        # print(f"[{epic}] LONG-Momentum schwächer → kein BUY")
-        return f"HOLD (Momentum schwach, {ma_type})"
-
-    if ma_fast < ma_slow and momentum_now > momentum_prev * SIGNAL_MOMENTUM_TOLERANCE : # 0.1
-        # print(f"[{epic}] SHORT-Momentum schwächer → kein SELL")
-        return f"HOLD (Momentum schwach, {ma_type})"
-
-    # ======================================================
-    #  3️⃣ SIGNAL-LOGIK (Kaufsignal / Verkaufssignal)
-    # ======================================================
-
-    # Signal-Logik (wie bisher, nur basierend auf aktivem MA-Typ)
-    # Trend-Logik: Fast > Slow → Aufwärtstrend → BUY
-    # Ein Trade wird nur dann als „BEREIT: BUY/SELL“ markiert, wenn die Änderung
-    # zwischen zwei aufeinanderfolgenden Candle-Closes größer ist als 2×Spread:
-    if ma_fast > ma_slow and (last_close - prev_close) > MIN_CLOSE_DELTA_SPREADS * spread:
-        return f"BEREIT: BUY ✅ ({ma_type})"
-    # Umgekehrt: Fast < Slow → Abwärtstrend → SELL
-    elif ma_fast < ma_slow and (prev_close - last_close) > MIN_CLOSE_DELTA_SPREADS * spread:
-        return f"BEREIT: SELL ⛔ ({ma_type})"
-    # Kein klares Signal
+    # ------------------------------
+    #  3) TrendDirection aus MA (EMA/HMA je nach USE_HMA)
+    # ------------------------------
+    if ma_fast > ma_slow:
+        trend_dir = "LONG"
+    elif ma_fast < ma_slow:
+        trend_dir = "SHORT"
     else:
+        trend_dir = None
+
+    if trend_dir is None:
+        _TREND_STATE[epic] = {"state": "WAIT_TREND", "dir": None, "armed": False}
         return f"UNSICHER ⚪ ({ma_type})"
+
+    # ------------------------------
+    #  4) Pullback/Retest Zustandsmaschine (Variante 1)
+    # ------------------------------
+    st = _TREND_STATE.get(epic)
+    if not st:
+        st = {"state": "WAIT_TREND", "dir": None, "armed": False}
+        _TREND_STATE[epic] = st
+
+    # Wenn Richtung kippt → Reset (wichtig gegen Flip-Flop)
+    if st["dir"] is not None and st["dir"] != trend_dir:
+        st["state"] = "WAIT_TREND"
+        st["dir"] = None
+        st["armed"] = False
+
+    # Distanz zum MA_fast (Pullback-Nähe / Impuls-Erkennung)
+    distance = abs(last_close - ma_fast)
+    near_dist = spread * PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS
+    far_dist = spread * PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS
+
+    # --- STATE: WAIT_TREND
+    if st["state"] == "WAIT_TREND":
+        # Trend ist da, aber wir handeln keinen Impuls → erst Pullback abwarten
+        st["state"] = "WAIT_PULLBACK"
+        st["dir"] = trend_dir
+        st["armed"] = False
+        return f"UNSICHER ⚪ ({ma_type})"
+
+    # --- STATE: WAIT_PULLBACK
+    if st["state"] == "WAIT_PULLBACK":
+        # "armed" wird erst, wenn Preis sich merklich vom MA entfernt hatte (Impuls war da)
+        if distance >= far_dist:
+            st["armed"] = True
+
+        # Pullback erreicht: nur wenn armed und wieder nahe am MA
+        if st["armed"] and distance <= near_dist:
+            st["state"] = "WAIT_CONFIRM"
+            return f"UNSICHER ⚪ ({ma_type})"
+
+        # Sonst: weiter warten
+        return f"UNSICHER ⚪ ({ma_type})"
+
+    # --- STATE: WAIT_CONFIRM
+    if st["state"] == "WAIT_CONFIRM":
+        # Confirm = Bewegung in Trendrichtung, skaliert mit Spread (Option M2)
+        confirm = False
+        if trend_dir == "LONG":
+            confirm = (last_close - prev_close) >= (CONFIRM_MIN_CLOSE_DELTA_SPREADS * spread)
+        elif trend_dir == "SHORT":
+            confirm = (prev_close - last_close) >= (CONFIRM_MIN_CLOSE_DELTA_SPREADS * spread)
+
+        if confirm:
+            # Entry-Event → State zurücksetzen (nächster Zyklus beginnt wieder bei WAIT_TREND)
+            st["state"] = "WAIT_TREND"
+            st["dir"] = None
+            st["armed"] = False
+
+            if trend_dir == "LONG":
+                return f"BEREIT: BUY ✅ ({ma_type})"
+            else:
+                return f"BEREIT: SELL ⛔ ({ma_type})"
+
+        # Wenn Markt wieder "weg läuft", ohne Confirm: zurück zu Pullback warten
+        if distance > far_dist:
+            st["state"] = "WAIT_PULLBACK"
+            # armed bleibt True, weil Impuls+Pullback schon stattgefunden haben
+            st["armed"] = True
+
+        return f"UNSICHER ⚪ ({ma_type})"
+
+    # Fallback (sollte nicht passieren)
+    _TREND_STATE[epic] = {"state": "WAIT_TREND", "dir": None, "armed": False}
+    return f"UNSICHER ⚪ ({ma_type})"
+
 
 # ==============================
 # Hilfsfunktionen für robustes Open/Close

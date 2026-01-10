@@ -50,7 +50,7 @@ class ChartManager:
             ax = fig.axes[0]
             # Einheitliche lokale Zeit (identisch zu tradeingbot)
             try:
-                from tradeingbot import to_local_dt
+                from tradingbot_2 import to_local_dt
                 now = to_local_dt(ts_ms)
                 # skew = (dt.datetime.now(LOCAL_TZ) - now).total_seconds()
                 # if abs(skew) > 1 and 980 <= (ts_ms % 1000) <= 999:
@@ -180,7 +180,7 @@ class ChartManager:
                 if balance_val is None:
                     bid_now = dq[-1].get("bid")
                     ask_now = dq[-1].get("ask")
-                    from tradeingbot import MANUAL_TRADE_SIZE
+                    from tradingbot_2 import MANUAL_TRADE_SIZE
                     size = pos.get("size") if pos.get("size") else MANUAL_TRADE_SIZE
 
                     if pos["direction"] == "BUY" and bid_now is not None:
