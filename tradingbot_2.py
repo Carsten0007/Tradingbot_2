@@ -514,7 +514,7 @@ def on_candle_forming(epic, bar, ts_ms):
     # Verwende Mid-Preis für die laufende Candle (technische Analyse)
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
-    mid_price = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+    mid_price = (close_bid + close_ask) / 2.0 if (close_bid is not None and close_ask is not None) else None
     closes = list(candle_history[epic]) + [mid_price]
     closes = [v for v in closes if v is not None]
 
@@ -528,9 +528,9 @@ def on_candle_forming(epic, bar, ts_ms):
     low_bid = bar.get("low_bid")
 
     if high_ask is not None and low_bid is not None:
-        spread = (close_ask - close_bid) if (close_ask is not None and close_bid is not None) else 0.0
+        spread = (close_ask - close_bid) if (close_ask is not None and close_bid is not None) else None
     else:
-        spread = 0.0
+        spread = None
 
     trend = evaluate_trend_signal(epic, closes, spread)
 
@@ -549,18 +549,19 @@ def on_candle_forming(epic, bar, ts_ms):
     close_bid = bar.get("close_bid")
     close_ask = bar.get("close_ask")
 
-    mid_open = (open_bid + open_ask) / 2 if open_bid and open_ask else None
-    mid_close = (close_bid + close_ask) / 2 if close_bid and close_ask else None
+    mid_open  = (open_bid + open_ask) / 2.0 if (open_bid is not None and open_ask is not None) else None
+    mid_close = (close_bid + close_ask) / 2.0 if (close_bid is not None and close_ask is not None) else None
 
     # Hinweis:
     # Diese BUY/SELL-Anzeige basiert auf Mid-Preisen (Durchschnitt aus Bid/Ask)
     # Sie dient nur der Visualisierung / Trendanzeige, nicht der Handelsentscheidung.
     if mid_close > mid_open:
-        instant = "BUY ✅"
+        instant = "TICKMOVE: UP ▲"
     elif mid_close < mid_open:
-        instant = "SELL ⛔"
+        instant = "TICKMOVE: DOWN ▼"
     else:
-        instant = "NEUTRAL ⚪"
+        instant = "TICKMOVE: FLAT •"
+
   
     # Offene Position abrufen für terminal ausgabe
     pos = open_positions.get(epic)
@@ -649,7 +650,7 @@ def on_candle_close(epic, bar):
     candle_history[epic].append(mid_price)
 
     # === 2️⃣ Spread berechnen (reale Marktspanne) ===
-    spread = (bar.get("close_ask") - bar.get("close_bid")) if (bar.get("close_ask") is not None and bar.get("close_bid") is not None) else 0.0
+    spread = (bar.get("close_ask") - bar.get("close_bid")) if (bar.get("close_ask") is not None and bar.get("close_bid") is not None) else None
 
     # === 3️⃣ Handelssignal auswerten ===
     closes = [v for v in candle_history[epic] if v is not None]
@@ -1158,7 +1159,7 @@ GREEN  = "\033[92m"
 RED    = "\033[91m"
 YELLOW = "\033[93m"
 
-open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | "BUY" | "SELL"
+open_positions = {epic: None for epic in INSTRUMENTS}  # Merker: None | dict (direction, dealId, entry_price, size, trailing_stop, ...)
 
 def decide_and_trade(CST, XSEC, epic, signal, current_price):
     # Entscheidet basierend auf Signal + aktueller Position mit Schutz-Logik + Farben.
@@ -1523,7 +1524,9 @@ async def run_candle_aggregator_per_instrument():
                                 continue
 
                             # Spread immer live berechnen
-                            spread = ask - bid if ask and bid else 0.0
+                            spread = (ask - bid) if (ask is not None and bid is not None) else None
+                            if spread is None or spread <= 0:
+                                continue
 
                             # 🔍 Debug-Log (optional)
                             # print(f"[DEBUG] check_protection_rules({epic}) → bid={bid:.2f}, ask={ask:.2f}, spread={spread:.5f}")
