@@ -588,18 +588,20 @@ def on_candle_forming(epic, bar, ts_ms):
     ts_str = f"{ts:.2f}" if isinstance(ts, (int, float)) else "-"
     tp_str = f"{tp:.2f}" if isinstance(tp, (int, float)) else "-"
     
+    def _fmt2(x):   # formatter
+        return f"{x:.2f}" if isinstance(x, (int, float)) else "-"
+
     if mid_open is not None and mid_close is not None:
         print(
             f"[{epic}] {local_time} - "
             f"O:{mid_open:.2f} C:{mid_close:.2f} (tks:{bar['ticks']}) → {instant} | Trend: {trend} "
             f"- sl={sl_str} ts={ts_str} tp={tp_str}"
         )
-
     else:
         print(
             f"[{epic}] {local_time} - "
-            f"O:{open_ask:.2f}/{open_bid:.2f}  C:{close_ask:.2f}/{close_bid:.2f} "
-            f"(tks:{bar['ticks']}) → {instant} | Trend: {trend}"
+            f"O:{_fmt2(open_ask)}/{_fmt2(open_bid)}  C:{_fmt2(close_ask)}/{_fmt2(close_bid)} "
+            f"(tks:{bar.get('ticks', 0)}) → {instant} | Trend: {trend}"
         )
 
     # Hook🧩 Chart aktualisieren – nur gültige Marktseitendaten übergeben
