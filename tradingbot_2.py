@@ -68,9 +68,9 @@ PROFILE_OUT_FILE = "profile_bot_1.txt"
 # ==============================
 # | Profil                     | EMA_FAST | EMA_SLOW | PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS | PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS | CONFIRM_MIN_CLOSE_DELTA_SPREADS | REGIME_MIN_DIRECTIONALITY |
 # | -------------------------- | -------: | -------: | ------------------------------------: | -----------------------------------: | ------------------------------: | ------------------------: |
-# | **Standard**               |        3 |        7 |                                   4.0 |                                  1.0 |                             0.6 |                      0.10 |
-# | **Max. Trades (Debug)**    |        2 |        5 |                                  10.0 |                                  0.0 |                             0.0 |                      0.00 |
-# | **Konservativ (Qualität)** |        5 |       13 |                                   3.0 |                                  4.0 |                             1.2 |                      0.20 |
+# | **Standard**               |        3 |        7 |                                   2.0 |                                  5.0 |                             0.6 |                      0.10 |
+# | **Max. Trades (Debug)**    |        2 |        5 |                                  10.0 |                                 12.0 |                             0.0 |                      0.00 |
+# | **Konservativ (Qualität)** |        5 |       13 |                                   1.5 |                                  6.0 |                             1.2 |                      0.20 |
 
 # NEAR_MAX_DISTANCE: höher = mehr “near”-Treffer ⇒ mehr Trades.
 # FAR_MIN_DISTANCE: höher = Pullback muss “wirklich weit weg” gewesen sein ⇒ weniger Trades.
@@ -111,13 +111,13 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # Typische Relationen:
 #   FAR > NEAR   (zwingend sinnvoll)
 
-PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS = 4.0
-PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS = 6.0
+PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS = 6.0
+PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS = 8.0
 
 
 # vorher TRADE_BARRIER
-CONFIRM_MIN_CLOSE_DELTA_SPREADS = 2.0 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
-REGIME_MIN_DIRECTIONALITY = 0.35
+CONFIRM_MIN_CLOSE_DELTA_SPREADS = 0.3 # ursprünglich 2.0, Wert * spread zwischen zwei aufeinanderfolgenden Candle-Closes, ab dem Trade zugelassen wird
+REGIME_MIN_DIRECTIONALITY = 0.05
 
 # ==============================
 # Risk Management Parameter
