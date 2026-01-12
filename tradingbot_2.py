@@ -66,6 +66,16 @@ PROFILE_OUT_FILE = "profile_bot_1.txt"
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
+# | Profil                     | EMA_FAST | EMA_SLOW | PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS | PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS | CONFIRM_MIN_CLOSE_DELTA_SPREADS | REGIME_MIN_DIRECTIONALITY |
+# | -------------------------- | -------: | -------: | ------------------------------------: | -----------------------------------: | ------------------------------: | ------------------------: |
+# | **Standard**               |        3 |        7 |                                   4.0 |                                  1.0 |                             0.6 |                      0.10 |
+# | **Max. Trades (Debug)**    |        2 |        5 |                                  10.0 |                                  0.0 |                             0.0 |                      0.00 |
+# | **Konservativ (Qualität)** |        5 |       13 |                                   3.0 |                                  4.0 |                             1.2 |                      0.20 |
+
+# NEAR_MAX_DISTANCE: höher = mehr “near”-Treffer ⇒ mehr Trades.
+# FAR_MIN_DISTANCE: höher = Pullback muss “wirklich weit weg” gewesen sein ⇒ weniger Trades.
+# CONFIRM_MIN_CLOSE_DELTA: höher = Candle muss klar in Trendrichtung schließen ⇒ weniger Trades.
+# REGIME_MIN_DIRECTIONALITY: höher = nur Trendphasen ⇒ weniger Trades.
 
 EMA_FAST = 10 # 5 #9   # kurze EMA-Periode (z. B. 9, 10, 20)
 EMA_SLOW = 18 # 11 #21  # lange EMA-Periode (z. B. 21, 30, 50)
@@ -77,23 +87,30 @@ USE_HMA = True  # Wenn False → klassische EMA, wenn True → Hull MA
 # ==============================
 # SIGNALFILTER – Entry-Feinjustage
 # ==============================
-
-# Maximal zulässige Entfernung zwischen Kurs und schnellem MA in Einheiten
-# des aktuellen Spreads.
+# Pullback-Logik (Zweistufig)
+#
+# Ziel:
+#   Nur Trades nach einem klaren Impuls UND anschließendem Rücksetzer
+#   an den schnellen MA (Pullback / Retest).
+#
+# Definition:
+#   distance = abs(last_close - ma_fast)
+#
+# 1) Impuls-Bedingung (Vergangenheit):
+#    distance MUSS zuvor mindestens
+#    spread * PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS betragen haben.
+#
+# 2) Entry-Bedingung (Jetzt):
+#    distance MUSS aktuell kleiner/gleich
+#    spread * PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS sein.
 #
 # Interpretation:
-#   distance = abs(last_close - ma_fast)
-#   max_distance = spread * SIGNAL_MAX_PRICE_DISTANCE_SPREADS
+#   FAR  hoch → nur starke Trends werden gehandelt
+#   NEAR niedrig → Entry nur sehr nah am MA (präzise Pullbacks)
 #
-# Nur wenn distance <= max_distance ist, wird ein Trend-Signal (BUY/SELL)
-# überhaupt in Betracht gezogen. Liegt der Kurs weiter weg, wird das Signal
-# als "überdehnt" auf HOLD gesetzt.
-#
-# Wirkung:
-#   0.5–1.0  → sehr streng: nur Einstiege nahe am Trendband (MA)
-#   1.0–2.0  → moderat: schützt vor späten Einstiegen nach großen Moves
-#   3.0–4.0  → locker: nur extreme Überdehnung wird geblockt
-#   100.0    → praktisch deaktiviert (aktueller Debug-Modus: "alles traden")
+# Typische Relationen:
+#   FAR > NEAR   (zwingend sinnvoll)
+
 PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS = 4.0
 PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS = 6.0
 
