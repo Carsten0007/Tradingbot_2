@@ -66,11 +66,18 @@ PROFILE_OUT_FILE = "profile_bot_1.txt"
 # ==============================
 # STRATEGIE-EINSTELLUNGEN
 # ==============================
+#                                                                                   !  immer < als  !
 # | Profil                     | EMA_FAST | EMA_SLOW | PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS | PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS | CONFIRM_MIN_CLOSE_DELTA_SPREADS | REGIME_MIN_DIRECTIONALITY |
 # | -------------------------- | -------: | -------: | ------------------------------------: | -----------------------------------: | ------------------------------: | ------------------------: |
-# | **Standard**               |        3 |        7 |                                   2.0 |                                  5.0 |                             0.6 |                      0.10 |
-# | **Max. Trades (Debug)**    |        2 |        5 |                                  10.0 |                                 12.0 |                             0.0 |                      0.00 |
-# | **Konservativ (Qualität)** |        5 |       13 |                                   1.5 |                                  6.0 |                             1.2 |                      0.20 |
+# | **Standard**               |      3-5 |     7-11 |                               0.6–1.2 |                              1.2–2.2 |                         0.2–0.6 |                 0.05–0.12 |
+# | **Max. Trades (Debug)**    |      2-4 |      5-8 |                               1.0–2.0 |                              1.2–2.0 |                         0.0–0.2 |                 0.00–0.05 |
+# | **Konservativ (Qualität)** |      5-8 |    13-21 |                               0.3–0.8 |                              1.8–3.0 |                         0.6–1.2 |                 0.12–0.25 |
+
+# | Profil | EMA_FAST | EMA_SLOW | PULLBACK_NEAR_MA_MAX_DISTANCE_SPREADS | PULLBACK_FAR_MA_MIN_DISTANCE_SPREADS | CONFIRM_MIN_CLOSE_DELTA_SPREADS | REGIME_MIN_DIRECTIONALITY |
+# | -------------------------- | -------: | -------: | ------------------------------------: | -----------------------------------: | ------------------------------: | ------------------------: |
+# | Standard | 3–5 | 7–11 | 0.6–1.2 | 1.2–2.2 | 0.2–0.6 | 0.05–0.12 |
+# | Max. Trades (Debug) | 2–4 | 5–8 | 1.0–2.0 | 1.2–2.0 | 0.0–0.2 | 0.00–0.05 |
+# | Konservativ (Qualität) | 5–8 | 13–21 | 0.3–0.8 | 1.8–3.0 | 0.6–1.2 | 0.12–0.25 |
 
 # NEAR_MAX_DISTANCE: höher = mehr “near”-Treffer ⇒ mehr Trades.
 # FAR_MIN_DISTANCE: höher = Pullback muss “wirklich weit weg” gewesen sein ⇒ weniger Trades.
