@@ -258,8 +258,8 @@ class ChartManager:
             "ts": ax.plot([], [], label="Trailing", color="orange", linestyle="--", linewidth=1.1)[0],
             "tp": ax.plot([], [], label="Take-Profit", color="green", linestyle=":", linewidth=1.1)[0],
             "be": ax.plot([], [], label="Break-Even", color="brown", linestyle="-.", linewidth=1.1)[0],
-            "ema_fast": ax.plot([], [], label="EMA Fast", color="darkgrey", linewidth=0.9, alpha=0.6)[0],
-            "ema_slow": ax.plot([], [], label="EMA Slow", color="darkgrey", linestyle="--", linewidth=0.9, alpha=0.6)[0],
+            "ema_fast": ax.plot([], [], label="EMA Fast", color="darkgrey", linewidth=0.5, alpha=0.5)[0],
+            "ema_slow": ax.plot([], [], label="EMA Slow", color="darkgrey", linestyle="--", linewidth=0.5, alpha=0.5)[0],
             "hma_fast": ax.plot([], [], label="HMA Fast", color="darkgreen", linewidth=0.9, alpha=0.6)[0],
             "hma_slow": ax.plot([], [], label="HMA Slow", color="darkgreen", linestyle="--", linewidth=0.9, alpha=0.6)[0],
         }
