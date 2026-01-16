@@ -1069,6 +1069,19 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
     spread_pct = spread / entry
     price = bid if direction == "BUY" else ask
 
+    # 🧭 Regime-Logging (nur Sichtbarkeit, kein Eingriff)
+    try:
+        log_trade_regime(epic, pos, bid, ask, spread, pos.get("last_tick_ms") or int(time.time() * 1000))
+    except Exception as e:
+        print(f"⚠️ [{epic}] Regime-Log Fehler: {e}")
+
+    # 🧷 TS-Tightening (nur FLAT im Gewinn, trade-lokal)
+    try:
+        ts_for_tight = pos.get("last_tick_ms") or int(time.time() * 1000)
+        apply_ts_tightening(epic, pos, price, entry, direction, spread, ts_for_tight)
+    except Exception as e:
+        print(f"⚠️ [{epic}] TS-Tightening Fehler: {e}")
+
     # 🔇 Throttle: nur ca. 1×/Sek. loggen – wenn die Tick-Millis im Fenster 950–999 liegen
     ts_for_log = pos.get("last_tick_ms") or int(time.time() * 1000)  # falls kein Tick-Zeitstempel vorhanden
     now_sec = int(time.time())
@@ -1157,6 +1170,254 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
         elif price <= take_profit_level:
             print(f"✅ [{epic}] Take-Profit erreicht (Ask={price:.2f}) → schließe SHORT")
             _debounced_close()
+
+
+"""
+A) Logging / Regime-Erkennung (log_trade_regime)
+- REGIME_PROFIT_GATE_SPREADS
+    Gewinn-Gate: profit_abs <= spread
+        Wert: 1.0 * spread
+        Funktion: Regime-Logging startet erst, wenn der Trade mindestens „spürbar im Gewinn“ ist (mehr als 1 Spread), damit wir keine Seitwärtsphasen im Minus/Break-even bewerten.
+- REGIME_RANGE_WINDOW_MS
+    Range-Fenster: window_ms=30000
+        Wert: 30.000 ms (30 Sekunden)
+        Funktion: Range-Berechnung der letzten 30 Sekunden aus TICK_RING (Kontraktion/Seitwärts messbar machen).
+- REGIME_IMPULSE_MAX_SECS_SINCE_EXTREME
+- REGIME_FLAT_MIN_SECS_SINCE_EXTREME
+    State-Schwellen „since_extreme“
+        Werte: <= 8s für IMPULSE, >= 20s für FLAT
+        Funktion: Klassifikation über „Zeit seit letztem neuen Extrem“ (neues Hoch bei LONG / neues Tief bei SHORT).
+            <= 8s: Impuls läuft noch [MAX]
+            >= 20s: Impuls vermutlich vorbei (Kandidat für Seitwärtsphase) [MIN]
+- REGIME_FLAT_MAX_RANGE_SPREADS
+    Range-Kontraktionsschwelle: range_spreads <= 6
+        Wert: 6 * spread
+        Funktion: Nur wenn die 30s-Range klein genug ist, wird FLAT gesetzt. Damit wird „Seitwärts“ nicht nur über Zeit, sondern auch über Markt-Enge definiert.
+B) TS-Tightening (apply_ts_tightening)
+- TIGHTEN_PROFIT_GATE_SPREADS
+    Gewinnschwelle für Tightening: profit_abs <= (3.0 * spread)
+        Wert: 3 * spread
+        Funktion: Tightening erst bei „klar im Gewinn“, um nicht zu früh zu eng zu werden.
+- TIGHTEN_COOLDOWN_MS
+    Cooldown: ts_ms - last_ms < 15000
+        Wert: 15.000 ms (15 Sekunden)
+        Funktion: Verhindert „Zittern“/zu häufiges Nachziehen durch FLAT-Flattern oder Tickrauschen.
+- TIGHTEN_MAX_STAGES
+    Max-Stufen: stage >= 2
+        Wert: 2 Stufen (Stage 1 und Stage 2)
+        Funktion: Kontrollierte Begrenzung – kein schleichendes, endloses enger werden.
+- TIGHTEN_STAGE1_PCT_FACTOR
+- TIGHTEN_STAGE2_PCT_FACTOR
+    Stage-Multiplikatoren auf TRAILING_STOP_PCT
+        Werte: Stage 1 = 0.70 * base_pct, Stage 2 = 0.50 * base_pct
+        Funktion: Effektiv engerer TS-Abstand, aber weiterhin relativ zum bestehenden globalen Trailing-Stop. Global bleibt unverändert, nur der aktuelle Trade wird „geklemmt“.
+- TIGHTEN_STAGE1_MIN_DISTANCE_SPREADS
+- TIGHTEN_STAGE2_MIN_DISTANCE_SPREADS
+    Mindestabstand zum Kurs in Spreads
+        Werte: Stage 1: min 2.0 Spreads, Stage 2: min 1.5 Spreads
+        Funktion: Sicherheitsuntergrenze, damit TS nicht so eng wird, dass normaler Spread/Noise sofort ausstoppt.
+"""
+
+# ==============================
+# TRADE-LOKAL: REGIME-LOGGING + TS-TIGHTENING (INTERNAL TUNING KNOBS)
+# für die 3 folgenden Methoden apply_ts_tightening, log_trade_regime und _tickring_range
+# ==============================
+ACTIVATE_TIGHTENING                    = True   # True=TS-Tightening aktiv, False=komplett aus (Regime-Logging bleibt)
+
+REGIME_PROFIT_GATE_SPREADS            = 1.0    # Logging erst aktiv, wenn Gewinn > X * Spread (Filter gegen Noise/BE-Phase)
+REGIME_RANGE_WINDOW_MS                = 30000  # Zeitfenster für Range-Berechnung aus TICK_RING (Seitwärts/Kompression messen)
+REGIME_IMPULSE_MAX_SECS_SINCE_EXTREME = 8.0    # IMPULSE, wenn letztes neues Extrem (High/Low) max. X Sekunden her ist
+REGIME_FLAT_MIN_SECS_SINCE_EXTREME    = 20.0   # FLAT-Kandidat, wenn seit neuem Extrem mind. X Sekunden vergangen sind
+REGIME_FLAT_MAX_RANGE_SPREADS         = 6.0    # FLAT nur, wenn Range(window) <= X * Spread (Kontraktion vorhanden)
+
+TIGHTEN_PROFIT_GATE_TS_MULT           = 1.0    # Tightening erst, wenn Gewinn >= X * (entry * TRAILING_STOP_PCT)  (X=1 => "break even + TS")
+TIGHTEN_COOLDOWN_MS                   = 15000  # Mindestabstand zwischen Tightening-Stufen (Anti-Flattern / Anti-Zittern)
+TIGHTEN_MAX_STAGES                    = 2      # Max. Anzahl Tightening-Stufen pro Trade (harte Begrenzung, kein Drift)
+TIGHTEN_FACTOR                         = 0.5    # Pro Stage: eff_pct = TRAILING_STOP_PCT * (TIGHTEN_FACTOR ** stage)
+
+# ==============================
+# Liefert (range, min, max) der Mid-Preise im Tick-Ring innerhalb window_ms.
+# Read-only: nutzt TICK_RING, schreibt nichts.
+# ==============================
+def _tickring_range(epic: str, now_ms: int, window_ms: int = REGIME_RANGE_WINDOW_MS):
+    
+    dq = TICK_RING.get(epic)
+    if not dq:
+        return None, None, None
+
+    cutoff = now_ms - window_ms
+    vmin = None
+    vmax = None
+
+    # von hinten nach vorne (neueste zuerst), bis cutoff erreicht
+    for ts, mid in reversed(dq):
+        if ts < cutoff:
+            break
+        if mid is None:
+            continue
+        if vmin is None or mid < vmin:
+            vmin = mid
+        if vmax is None or mid > vmax:
+            vmax = mid
+
+    if vmin is None or vmax is None:
+        return None, None, None
+
+    return (vmax - vmin), vmin, vmax
+
+
+# ==============================
+# Trade-lokales Regime-Logging (Seitwärts/Impuls) – ohne Einfluss auf TS/SL/TP.
+# ==============================
+def log_trade_regime(epic: str, pos: dict, bid: float, ask: float, spread: float, ts_ms: int):
+    direction = pos.get("direction")
+    entry = pos.get("entry_price")
+    if not direction or entry is None:
+        return
+
+    # Trigger-Preis wie in check_protection_rules (LONG=Bid, SHORT=Ask)
+    price = bid if direction == "BUY" else ask
+    if price is None or spread is None or spread <= 0:
+        return
+
+    # Nur 1x pro Sekunde loggen
+    sec = ts_ms // 1000
+    last_sec = pos.get("regime_last_log_sec")
+    if last_sec == sec:
+        return
+    pos["regime_last_log_sec"] = sec
+
+    # Gewinnprüfung (nur im Gewinn loggen)
+    # Mindestgewinnschwelle: > 1 Spread (rein intern, kein globaler Param)
+    if direction == "BUY":
+        profit_abs = price - entry
+    else:
+        profit_abs = entry - price
+
+    if profit_abs <= (REGIME_PROFIT_GATE_SPREADS * spread):
+        # noch nicht "im Gewinn genug" → Regime-Logging aus
+        return
+
+    # Extremwerte trade-lokal (für "kein neues Hoch/Tief")
+    if direction == "BUY":
+        peak = pos.get("regime_peak")
+        if peak is None or price > peak:
+            pos["regime_peak"] = price
+            pos["regime_last_extreme_ts"] = ts_ms
+    else:
+        trough = pos.get("regime_trough")
+        if trough is None or price < trough:
+            pos["regime_trough"] = price
+            pos["regime_last_extreme_ts"] = ts_ms
+
+    last_extreme_ts = pos.get("regime_last_extreme_ts", ts_ms)
+    secs_since_extreme = (ts_ms - last_extreme_ts) / 1000.0
+
+    # Range im letzten Fenster (z.B. 30s) relativ zum Spread
+    rng, vmin, vmax = _tickring_range(epic, ts_ms, window_ms=REGIME_RANGE_WINDOW_MS)
+    if rng is None:
+        return
+
+    range_spreads = rng / spread
+
+    # Sehr einfache Zustandslogik (nur Sichtbarkeit):
+    # - "IMPULSE": kürzlich neue Extreme (<= 8s)
+    # - "FLAT": länger kein neues Extrem (>= 20s) UND enge Range (<= 6 Spreads)
+    # - sonst "RUN"
+    if secs_since_extreme <= REGIME_IMPULSE_MAX_SECS_SINCE_EXTREME:
+        state = "IMPULSE"
+    elif (secs_since_extreme >= REGIME_FLAT_MIN_SECS_SINCE_EXTREME) and (range_spreads <= REGIME_FLAT_MAX_RANGE_SPREADS):
+        state = "FLAT"
+    else:
+        state = "RUN"
+
+    prev_state = pos.get("regime_state")
+    pos["regime_state"] = state
+
+    # Logging (bei State-Change immer, sonst "ruhig" einmal pro Sekunde)
+    # Wenn du es noch leiser willst: nur bei prev_state != state loggen.
+    p_pct = (profit_abs / entry) * 100.0
+    print(
+        f"📌 [REGIME {epic}] dir={direction} state={state}"
+        f" (prev={prev_state})"
+        f" profit={p_pct:.3f}%"
+        f" since_extreme={secs_since_extreme:.1f}s"
+        f" range{int(REGIME_RANGE_WINDOW_MS/1000)}s={range_spreads:.1f}xSpread"
+    )
+
+
+# ==============================
+# Trade-lokales TS-Tightening – NUR wenn Regime=FLAT und Trade klar im Gewinn ist.
+# Tightening erfolgt rein über TS-% Scaling (ohne Spread-Abhängigkeit).
+# ==============================
+def apply_ts_tightening(epic: str, pos: dict, price: float, entry: float, direction: str, spread: float, ts_ms: int):
+    if not ACTIVATE_TIGHTENING:
+        return
+
+    if not isinstance(pos, dict):
+        return
+
+    state = pos.get("regime_state")
+    if state != "FLAT":
+        return  # Trigger ist Regime, nicht Zeit
+
+    if entry is None or price is None:
+        return
+
+    # Gewinn (absolut)
+    if direction == "BUY":
+        profit_abs = price - entry
+    else:
+        profit_abs = entry - price
+
+    # Profit-Gate: "break even + TS" (oder Vielfaches davon)
+    base_pct = float(TRAILING_STOP_PCT)
+    if base_pct <= 0:
+        return
+    gate_abs = TIGHTEN_PROFIT_GATE_TS_MULT * (entry * base_pct)
+    if profit_abs < gate_abs:
+        return
+
+    # Cooldown
+    last_ms = pos.get("ts_tight_last_ms", 0)
+    if ts_ms - last_ms < TIGHTEN_COOLDOWN_MS:
+        return
+
+    # Stage-Handling
+    stage = int(pos.get("ts_tight_stage") or 0)
+    if stage >= TIGHTEN_MAX_STAGES:
+        return
+
+    # Effektiver TS-% Abstand: TRAILING_STOP_PCT skaliert pro Stage
+    # Stage 0 -> eff_pct = base_pct * (factor ** 0) = base_pct  (noch kein Tightening)
+    # Stage 1 -> base_pct * factor
+    # Stage 2 -> base_pct * factor^2
+    # ...
+    new_stage = stage + 1
+    eff_pct = base_pct * (TIGHTEN_FACTOR ** new_stage)
+
+    # Aktuellen TS holen
+    stop = pos.get("trailing_stop")
+
+    # Kandidaten-Stop aus aktuellem Preis und eff_pct
+    if direction == "BUY":
+        candidate = price * (1.0 - eff_pct)
+        # nur nach oben (niemals lockern)
+        if stop is None or candidate > stop:
+            pos["trailing_stop"] = candidate
+            pos["ts_tight_stage"] = new_stage
+            pos["ts_tight_last_ms"] = ts_ms
+            pos["ts_tight_active"] = True
+            print(f"🧷 [{epic}] TS-Tighten Stage {new_stage} (FLAT): eff_pct={eff_pct:.6f}  ts→{candidate:.2f}")
+    else:  # SELL
+        candidate = price * (1.0 + eff_pct)
+        # nur nach unten (niemals lockern)
+        if stop is None or candidate < stop:
+            pos["trailing_stop"] = candidate
+            pos["ts_tight_stage"] = new_stage
+            pos["ts_tight_last_ms"] = ts_ms
+            pos["ts_tight_active"] = True
+            print(f"🧷 [{epic}] TS-Tighten Stage {new_stage} (FLAT): eff_pct={eff_pct:.6f}  ts→{candidate:.2f}")
 
 
 # ==============================
