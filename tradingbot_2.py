@@ -1121,6 +1121,15 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
                 pos["trailing_stop"] = be
                 print(f"🛡️ [{epic}] Trailing-Stop angehoben (Break-Even aktiv)")
 
+        # ==============================
+        # TODO (TS-Tightening): trailing_stop ggf. direkt vor der finalen Stop-Pruefung neu aus pos laden
+        # Hintergrund: stop wird oben einmalig aus pos.get("trailing_stop") gelesen und kann innerhalb dieses Ticks durch
+        # Break-Even / Baseline-Trailing / apply_ts_tightening aktualisiert werden. Ohne Reload wirkt die Aenderung erst ab dem naechsten Tick.
+        # Bei Bedarf spaeter minimal fixen durch 1–3 Zeilen:
+        #   stop = pos.get("trailing_stop")
+        # (optional auch nach BE-Set und nach Trailing-Update, falls Tick-genaue Prioritaet gewuenscht ist)
+        # ==============================
+
         # Stops prüfen
         if price <= stop_loss_level or (stop is not None and price <= stop):
             print(f"⛔ [{epic}] Stop ausgelöst (Bid={price:.2f}) → schließe LONG")
@@ -1162,6 +1171,15 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
             if stop is not None and pos["trailing_stop"] > be:
                 pos["trailing_stop"] = be
                 print(f"🛡️ [{epic}] Trailing-Stop gesenkt (Break-Even aktiv)")
+
+        # ==============================
+        # TODO (TS-Tightening): trailing_stop ggf. direkt vor der finalen Stop-Pruefung neu aus pos laden
+        # Hintergrund: stop wird oben einmalig aus pos.get("trailing_stop") gelesen und kann innerhalb dieses Ticks durch
+        # Break-Even / Baseline-Trailing / apply_ts_tightening aktualisiert werden. Ohne Reload wirkt die Aenderung erst ab dem naechsten Tick.
+        # Bei Bedarf spaeter minimal fixen durch 1–3 Zeilen:
+        #   stop = pos.get("trailing_stop")
+        # (optional auch nach BE-Set und nach Trailing-Update, falls Tick-genaue Prioritaet gewuenscht ist)
+        # ==============================
 
         # Stops prüfen
         if price >= stop_loss_level or (stop is not None and price >= stop):
