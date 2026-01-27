@@ -18,6 +18,16 @@ from chart_gui_2 import ChartManager
 charts = ChartManager(window_size_sec=300)
 init(autoreset=True)
 
+# >>> NEW: Logging-Konfiguration (nur im Live-Bot aktiv)
+IS_LIVE_BOT = (__name__ == "__main__")
+
+BASE_DIR = os.path.dirname(__file__)
+PARAM_LOG_CSV = os.path.join(BASE_DIR, "parameter_log.csv")
+TRADE_LOG_CSV = os.path.join(BASE_DIR, "trades_log.csv")
+PARAMETER_CSV = os.path.join(BASE_DIR, "parameter.csv")
+
+
+
 # Ringpuffer für Tick-Daten (mid)
 TICK_RING_MAXLEN = 60000   # z.B. ~120–600 Minuten bei 100–500 Ticks/min
 TICK_RING = {}             # { epic: deque([(ts_ms:int, mid:float)], maxlen=...) }
@@ -162,8 +172,6 @@ _TREND_STATE = {}  # epic -> {"state": str, "dir": "LONG"/"SHORT"/None, "armed":
 # PARAMETER CSV (Reload) – 2 Trigger: Startup + nach Close
 # ==============================
 
-PARAMETER_CSV = os.path.join(os.path.dirname(__file__), "parameter.csv")
-
 # Welche Variablen dürfen aus parameter.csv überschrieben werden?
 # (Liste bewusst explizit, damit nicht aus Versehen API_KEYS etc. überschrieben werden.)
 _PARAM_KEYS = [
@@ -188,8 +196,95 @@ _PARAM_KEYS = [
 _PARAM_LAST_APPLIED = None  # dict | None
 
 
+# ==============================
+# generische CSV-Logger-Helper
+# Hängt eine Zeile an eine CSV-Datei an.
+#     - Semikolon als Trenner
+#     - Header wird bei Bedarf einmalig geschrieben
+#     - Exceptions werden abgefangen (Logging darf Bot nicht killen)
+# ==============================
+def _append_log_row(path: str, fieldnames, row: dict) -> None:
+   
+    try:
+        need_header = not os.path.isfile(path)
+        with open(path, "a", encoding="utf-8") as f:
+            if need_header:
+                f.write(";".join(fieldnames) + "\n")
+
+            values = []
+            for key in fieldnames:
+                v = row.get(key, "")
+                if isinstance(v, float):
+                    # Dezimalpunkt beibehalten (wie in parameter.csv)
+                    values.append(f"{v:.10f}".rstrip("0").rstrip("."))
+                else:
+                    values.append(str(v))
+            f.write(";".join(values) + "\n")
+    except Exception as e:
+        print(f"⚠️ Log-Fehler für {os.path.basename(path)}: {e}")
+
+
+# Felder für Parameter- und Trade-Logs
+PARAM_LOG_FIELDS = ["timestamp", "trigger"] + _PARAM_KEYS
+
+TRADE_LOG_FIELDS = [
+    "timestamp",
+    "event",
+    "epic",
+    "direction",
+    "deal_id",
+    "size",
+    "price",
+    "pnl",
+    "reason",
+]
+
+
+def log_parameters(trigger: str) -> None:
+    # Schreibt einen kompletten Parameter-Snapshot in parameter_log.csv (nur Live-Bot).
+    if not IS_LIVE_BOT:
+        return
+
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S")
+    row = {
+        "timestamp": ts,
+        "trigger": trigger,
+    }
+    for k in _PARAM_KEYS:
+        row[k] = globals().get(k)
+    _append_log_row(PARAM_LOG_CSV, PARAM_LOG_FIELDS, row)
+
+
+def log_trade(event: str,
+              epic: str,
+              direction=None,
+              deal_id=None,
+              size=None,
+              price=None,
+              pnl=None,
+              reason=None) -> None:
+    # Schreibt OPEN/CLOSE-Events in trades_log.csv (nur Live-Bot).
+    if not IS_LIVE_BOT:
+        return
+
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S")
+    row = {
+        "timestamp": ts,
+        "event": event,
+        "epic": epic,
+        "direction": direction or "",
+        "deal_id": deal_id or "",
+        "size": size,
+        "price": price,
+        "pnl": pnl,
+        "reason": reason or "",
+    }
+    _append_log_row(TRADE_LOG_CSV, TRADE_LOG_FIELDS, row)
+
+
+
 def _cast_like_existing(key: str, raw_value: str):
-    """Castet raw_value grob auf den Typ der existierenden Global-Variable (ohne Plausibilitätschecks)."""
+    # Castet raw_value grob auf den Typ der existierenden Global-Variable (ohne Plausibilitätschecks).
     if key not in globals():
         return raw_value
 
@@ -216,16 +311,15 @@ def _cast_like_existing(key: str, raw_value: str):
     return raw_value.strip()
 
 
+# ==============================
+# Lädt parameter.csv (selber Ordner wie Script), 'letzte Zeile gewinnt',
+# und überschreibt nur bekannte _PARAM_KEYS.
+# Logging: genau 1 Zeile, aber nur wenn sich effektiv etwas geändert hat.
+# Return:
+#   True  -> Parameter wurden geändert und angewendet
+#   False -> keine Änderung (oder Datei fehlt/fehlerhaft -> bestehende Werte bleiben)
+# ==============================
 def load_parameters(trigger: str) -> bool:
-    """
-    Lädt parameter.csv (selber Ordner wie Script), 'letzte Zeile gewinnt',
-    und überschreibt nur bekannte _PARAM_KEYS.
-    Logging: genau 1 Zeile, aber nur wenn sich effektiv etwas geändert hat.
-
-    Return:
-      True  -> Parameter wurden geändert und angewendet
-      False -> keine Änderung (oder Datei fehlt/fehlerhaft -> bestehende Werte bleiben)
-    """
     global _PARAM_LAST_APPLIED
 
     path = PARAMETER_CSV
@@ -276,13 +370,19 @@ def load_parameters(trigger: str) -> bool:
     for k, _old, new in changes:
         globals()[k] = new
 
-    # Logging: genau eine Zeile
+    # Logging: genau eine Zeile in der Konsole
     msg = "; ".join([f"{k} {old}→{new}" for k, old, new in changes])
     print(f"🧩 PARAM geändert ({trigger}): {msg}")
 
     _PARAM_LAST_APPLIED = {k: globals().get(k) for k in updated.keys()}
-    return True
 
+    # Parameter-Snapshot in CSV loggen (nur Live-Bot)
+    try:
+        log_parameters(trigger)
+    except Exception as e:
+        print(f"⚠️ PARAM-Logging fehlgeschlagen ({trigger}): {e}")
+
+    return True
 
 
 def to_local_dt(ms_since_epoch: int) -> datetime:
@@ -990,6 +1090,38 @@ def safe_close(CST, XSEC, epic, deal_id=None):
         print(f"ℹ️ [{epic}] Close 404 not-found.dealId → Position gilt als bereits geschlossen (idempotent).")
 
     if ok:
+        # Snapshot für Logging sichern, bevor open_positions gelöscht wird
+        snapshot = open_positions.get(epic) if isinstance(open_positions.get(epic), dict) else None
+        if snapshot:
+            try:
+                entry = snapshot.get("entry_price")
+                size_val = snapshot.get("size") or MANUAL_TRADE_SIZE
+                close_price = snapshot.get("last_close_trigger_price") or snapshot.get("mark_price")
+                reason = snapshot.get("last_close_reason") or "CLOSE"
+
+                pnl = None
+                if entry is not None and close_price is not None:
+                    entry = float(entry)
+                    close_price = float(close_price)
+                    size_val = float(size_val)
+                    if direction == "BUY":
+                        pnl = (close_price - entry) * size_val
+                    else:
+                        pnl = (entry - close_price) * size_val
+
+                log_trade(
+                    event="CLOSE",
+                    epic=epic,
+                    direction=direction,
+                    deal_id=deal_id,
+                    size=size_val,
+                    price=close_price,
+                    pnl=pnl,
+                    reason=reason,
+                )
+            except Exception as e:
+                print(f"⚠️ Trade-Logging CLOSE fehlgeschlagen für {epic}: {e}")
+
         open_positions[epic] = None
         print(f"✅ [{epic}] Close erfolgreich → open_positions reset")
 
@@ -1005,6 +1137,7 @@ def safe_close(CST, XSEC, epic, deal_id=None):
             print(f"⚠️ [{epic}] Abgleich nach Close fehlgeschlagen:", e)
 
         load_parameters(f"after_close:{epic}")
+
 
     else:
         print(f"⚠️ [{epic}] Close fehlgeschlagen (dealId={deal_id})")
@@ -1028,8 +1161,25 @@ def safe_open(CST, XSEC, epic, direction, size, entry_price):
 
         # Nur Trailing Stop ergänzen
         open_positions[epic]["trailing_stop"] = trailing_stop
-        print(f"🆕 [{epic}] Open erfolgreich → {direction} "
-              f"(dealId={open_positions[epic].get('dealId')}, entry={entry_price}, trailing={trailing_stop})")
+        print(
+            f"🆕 [{epic}] Open erfolgreich → {direction} "
+            f"(dealId={open_positions[epic].get('dealId')}, entry={entry_price}, trailing={trailing_stop})"
+        )
+
+        # Trade-OPEN loggen
+        try:
+            log_trade(
+                event="OPEN",
+                epic=epic,
+                direction=direction,
+                deal_id=open_positions[epic].get("dealId"),
+                size=open_positions[epic].get("size"),
+                price=entry_price,
+                pnl=None,
+                reason="OPEN",
+            )
+        except Exception as e:
+            print(f"⚠️ Trade-Logging OPEN fehlgeschlagen für {epic}: {e}")
 
     return ok
 
@@ -1132,9 +1282,13 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
 
         # Stops prüfen
         if price <= stop_loss_level or (stop is not None and price <= stop):
+            pos["last_close_reason"] = "STOP_LOSS"
+            pos["last_close_trigger_price"] = price
             print(f"⛔ [{epic}] Stop ausgelöst (Bid={price:.2f}) → schließe LONG")
             _debounced_close()
         elif price >= take_profit_level:
+            pos["last_close_reason"] = "TAKE_PROFIT"
+            pos["last_close_trigger_price"] = price
             print(f"✅ [{epic}] Take-Profit erreicht (Bid={price:.2f}) → schließe LONG")
             _debounced_close()
 
@@ -1183,12 +1337,15 @@ def check_protection_rules(epic, bid, ask, spread, CST, XSEC):
 
         # Stops prüfen
         if price >= stop_loss_level or (stop is not None and price >= stop):
+            pos["last_close_reason"] = "STOP_LOSS"
+            pos["last_close_trigger_price"] = price
             print(f"⛔ [{epic}] Stop ausgelöst (Ask={price:.2f}) → schließe SHORT")
             _debounced_close()
         elif price <= take_profit_level:
+            pos["last_close_reason"] = "TAKE_PROFIT"
+            pos["last_close_trigger_price"] = price
             print(f"✅ [{epic}] Take-Profit erreicht (Ask={price:.2f}) → schließe SHORT")
             _debounced_close()
-
 
 """
 A) Logging / Regime-Erkennung (log_trade_regime)
