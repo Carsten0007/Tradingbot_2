@@ -22,8 +22,7 @@ init(autoreset=True)
 IS_LIVE_BOT = (__name__ == "__main__")
 
 BASE_DIR = os.path.dirname(__file__)
-PARAM_LOG_CSV = os.path.join(BASE_DIR, "parameter_log.csv")
-TRADE_LOG_CSV = os.path.join(BASE_DIR, "trades_log.csv")
+LOG_CSV = os.path.join(BASE_DIR, "bot_log.csv")
 PARAMETER_CSV = os.path.join(BASE_DIR, "parameter.csv")
 
 
@@ -224,12 +223,10 @@ def _append_log_row(path: str, fieldnames, row: dict) -> None:
         print(f"⚠️ Log-Fehler für {os.path.basename(path)}: {e}")
 
 
-# Felder für Parameter- und Trade-Logs
-PARAM_LOG_FIELDS = ["timestamp", "trigger"] + _PARAM_KEYS
-
-TRADE_LOG_FIELDS = [
-    "timestamp",
-    "event",
+# gemeinsame Feldliste für Logdatei (Parameter + Trades)
+LOG_FIELDS = [
+    "timestamp",   # mit Millisekunden
+    "trigger",     # startup, after_close:EPIC, open, close
     "epic",
     "direction",
     "deal_id",
@@ -237,22 +234,34 @@ TRADE_LOG_FIELDS = [
     "price",
     "pnl",
     "reason",
-]
+] + _PARAM_KEYS
 
 
 def log_parameters(trigger: str) -> None:
-    # Schreibt einen kompletten Parameter-Snapshot in parameter_log.csv (nur Live-Bot).
+    # Schreibt einen Parameter-Snapshot in die gemeinsame Logdatei (nur Live-Bot).
     if not IS_LIVE_BOT:
         return
 
-    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S")
+    # Zeit mit Millisekunden
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+
     row = {
         "timestamp": ts,
-        "trigger": trigger,
+        "trigger": trigger,  # z.B. "startup" oder "after_close:ETHUSD"
+        "epic": "",
+        "direction": "",
+        "deal_id": "",
+        "size": "",
+        "price": "",
+        "pnl": "",
+        "reason": "",
     }
+
+    # alle Parameter-Spalten füllen
     for k in _PARAM_KEYS:
         row[k] = globals().get(k)
-    _append_log_row(PARAM_LOG_CSV, PARAM_LOG_FIELDS, row)
+
+    _append_log_row(LOG_CSV, LOG_FIELDS, row)
 
 
 def log_trade(event: str,
@@ -263,14 +272,17 @@ def log_trade(event: str,
               price=None,
               pnl=None,
               reason=None) -> None:
-    # Schreibt OPEN/CLOSE-Events in trades_log.csv (nur Live-Bot).
+    # Schreibt OPEN/CLOSE-Events in die gemeinsame Logdatei (nur Live-Bot).
     if not IS_LIVE_BOT:
         return
 
-    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S")
+    # Zeit mit Millisekunden
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+
     row = {
         "timestamp": ts,
-        "event": event,
+        # OPEN/CLOSE-Events über trigger abbilden
+        "trigger": event.lower(),  # "open", "close"
         "epic": epic,
         "direction": direction or "",
         "deal_id": deal_id or "",
@@ -279,7 +291,12 @@ def log_trade(event: str,
         "pnl": pnl,
         "reason": reason or "",
     }
-    _append_log_row(TRADE_LOG_CSV, TRADE_LOG_FIELDS, row)
+
+    # bei jedem Trade die aktuellen Parameter mitloggen
+    for k in _PARAM_KEYS:
+        row[k] = globals().get(k)
+
+    _append_log_row(LOG_CSV, LOG_FIELDS, row)
 
 
 
