@@ -214,8 +214,8 @@ def _append_log_row(path: str, fieldnames, row: dict) -> None:
             for key in fieldnames:
                 v = row.get(key, "")
                 if isinstance(v, float):
-                    # Dezimalpunkt beibehalten (wie in parameter.csv)
-                    values.append(f"{v:.10f}".rstrip("0").rstrip("."))
+                    s = f"{v:.10f}".rstrip("0").rstrip(".")
+                    values.append(s.replace(".", ","))
                 else:
                     values.append(str(v))
             f.write(";".join(values) + "\n")
@@ -243,7 +243,7 @@ def log_parameters(trigger: str) -> None:
         return
 
     # Zeit mit Millisekunden
-    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S,%f")[:-3]
 
     row = {
         "timestamp": ts,
@@ -277,7 +277,7 @@ def log_trade(event: str,
         return
 
     # Zeit mit Millisekunden
-    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S.%f")[:-3]
+    ts = datetime.now(LOCAL_TZ).strftime("%d.%m.%Y %H:%M:%S,%f")[:-3]
 
     row = {
         "timestamp": ts,
@@ -641,6 +641,189 @@ def close_position(CST, XSEC, epic, deal_id=None, retry=True):
 
 
 # ==============================
+# Synchronisiert den lokalen Bot-Zustand (open_positions)
+# mit den realen Positionen beim Broker.
+# Kontext-Beispiele:
+#   - "after_reconnect"
+#   - "before_decision"
+# ==============================
+
+def sync_positions_with_broker(CST, XSEC, context="manual"):
+
+    try:
+        positions_data = get_positions(CST, XSEC)
+    except Exception as e:
+        print(f"⚠️ [SYNC] get_positions fehlgeschlagen ({context}): {e}")
+        return
+
+    # positions_data ist typischerweise {"positions": [...]}
+    if isinstance(positions_data, list):
+        # get_positions liefert direkt eine Liste von Positions-Objekten
+        positions_list = positions_data
+    elif isinstance(positions_data, dict):
+        # Fallback, falls wir irgendwann mal das Format ändern
+        positions_list = positions_data.get("positions", [])
+    else:
+        positions_list = []
+
+
+    # Hilfsstruktur: EPIC -> Liste von Positions-Objekten
+    broker_by_epic = {}
+    for p in positions_list:
+        epic = None
+
+        # 1) Versuch: position.epic (falls vorhanden)
+        try:
+            epic = p.get("position", {}).get("epic")
+        except Exception:
+            epic = None
+
+        # 2) Fallback: market.epic (typisch bei Capital/IG)
+        if not epic:
+            try:
+                epic = p.get("market", {}).get("epic")
+            except Exception:
+                epic = None
+
+        if not epic:
+            continue
+
+        broker_by_epic.setdefault(epic, []).append(p)
+
+    # --- Schutzgurt: Wenn Broker Positionen liefert, aber keine davon einem bekannten EPIC zugeordnet werden kann,
+    # dann ist das ein Parsing-/Formatproblem -> in dem Fall NICHT destruktiv synchronisieren.
+    if positions_list and not any((e in broker_by_epic) for e in INSTRUMENTS):
+        print(
+            f"⚠️ [SYNC] (context={context}) Broker liefert Positionen, aber keine EPIC-Zuordnung möglich. "
+            f"Abbruch ohne Änderungen (Parsing-Schutz)."
+        )
+        return
+
+
+    # Pro bekanntem Instrument prüfen
+    for epic in INSTRUMENTS:
+        remote_positions = broker_by_epic.get(epic, [])
+        remote_count = len(remote_positions)
+        local_pos = open_positions.get(epic)
+
+
+        # Fall 1: nichts offen – alles gut
+        if remote_count == 0 and local_pos is None:
+            continue
+
+        # Fall 2: nur lokal offen → lokalen Zustand aufräumen
+        if remote_count == 0 and local_pos is not None:
+            print(
+                f"⚠️ [SYNC] {epic} (context={context}) – "
+                f"Bot glaubt an offenen Trade (dealId={local_pos.get('dealId')}); "
+                f"Broker meldet 0 Positionen → setze open_positions[{epic}]=None"
+            )
+            open_positions[epic] = None
+            continue
+
+        # Ab hier: remote_count >= 1
+        # Sicherheitsmodus: Bot unterstützt nur 0 oder 1 Trade pro EPIC.
+        if remote_count > 1:
+            print(
+                f"⚠️ [SYNC] {epic} (context={context}) – "
+                f"{remote_count} Broker-Positionen gefunden. "
+                f"Schließe alle und setze open_positions[{epic}]=None."
+            )
+            for p in remote_positions:
+                try:
+                    deal_id = p["position"]["dealId"]
+                except Exception:
+                    continue
+                try:
+                    safe_close(CST, XSEC, epic, deal_id=deal_id, reason="SYNC_MULTI_REMOTE")
+                except Exception as e:
+                    print(f"⚠️ [SYNC] Fehler bei safe_close({epic}, dealId={deal_id}): {e}")
+            
+            # Nur dann lokal freigeben, wenn Broker jetzt wirklich 0 meldet
+            try:
+                _check = get_positions(CST, XSEC)
+                _plist = _check if isinstance(_check, list) else (_check.get("positions", []) if isinstance(_check, dict) else [])
+                _still = [pp for pp in _plist if (pp.get("position", {}).get("epic") == epic) or (pp.get("market", {}).get("epic") == epic)]
+                if len(_still) == 0:
+                    open_positions[epic] = None
+                else:
+                    # Blockieren: Broker hat weiterhin Position(en), Bot darf NICHT neu eröffnen
+                    open_positions[epic] = {"dealId": _still[0]["position"].get("dealId"), "direction": _still[0]["position"].get("direction")}
+            except Exception:
+                # im Zweifel blockieren, nicht freigeben
+                open_positions[epic] = {"dealId": "<UNKNOWN>", "direction": "<UNKNOWN>"}
+
+            continue
+
+        # remote_count == 1
+        remote = remote_positions[0]
+        try:
+            remote_deal = remote["position"]["dealId"]
+            remote_dir = remote["position"]["direction"]
+        except Exception:
+            print(f"⚠️ [SYNC] {epic} (context={context}) – ungültige Positionsdaten vom Broker, überspringe.")
+            continue
+
+        # Fall 3: Broker hat Trade, Bot nicht
+        if local_pos is None:
+            print(
+                f"⚠️ [SYNC] {epic} (context={context}) – "
+                f"Broker-Trade vorhanden (dealId={remote_deal}, dir={remote_dir}), "
+                f"Bot kennt keinen Trade → schließe Broker-Trade."
+            )
+            try:
+                safe_close(CST, XSEC, epic, deal_id=remote_deal, reason="SYNC_REMOTE_ONLY")
+            except Exception as e:
+                print(f"⚠️ [SYNC] Fehler bei safe_close({epic}, dealId={remote_deal}): {e}")
+            
+            # Nur freigeben, wenn Close wirklich erfolgreich war – sonst blockieren
+            try:
+                _check = get_positions(CST, XSEC)
+                _plist = _check if isinstance(_check, list) else (_check.get("positions", []) if isinstance(_check, dict) else [])
+                _still = [pp for pp in _plist if (pp.get("position", {}).get("epic") == epic) or (pp.get("market", {}).get("epic") == epic)]
+                if len(_still) == 0:
+                    open_positions[epic] = None
+                else:
+                    open_positions[epic] = {"dealId": remote_deal, "direction": remote_dir}
+            except Exception:
+                open_positions[epic] = {"dealId": remote_deal, "direction": remote_dir}
+
+            continue
+
+        # Fall 4: beide haben Trade, aber mismatch (dealId / Richtung)
+        local_deal = local_pos.get("dealId")
+        local_dir = local_pos.get("direction")
+
+        if local_deal == remote_deal and local_dir == remote_dir:
+            # Konsistent – nichts zu tun
+            continue
+
+        print(
+            f"⚠️ [SYNC] {epic} (context={context}) – "
+            f"Mismatch zwischen Bot und Broker:\n"
+            f"    Bot   → dealId={local_deal}, dir={local_dir}\n"
+            f"    Broker→ dealId={remote_deal}, dir={remote_dir}\n"
+            f"  → schließe Broker-Trade und resette open_positions."
+        )
+        try:
+            safe_close(CST, XSEC, epic, deal_id=remote_deal, reason="SYNC_MISMATCH")
+        except Exception as e:
+            print(f"⚠️ [SYNC] Fehler bei safe_close({epic}, dealId={remote_deal}): {e}")
+        # Nur freigeben, wenn Broker jetzt wirklich 0 meldet – sonst blockieren
+        try:
+            _check = get_positions(CST, XSEC)
+            _plist = _check if isinstance(_check, list) else (_check.get("positions", []) if isinstance(_check, dict) else [])
+            _still = [pp for pp in _plist if (pp.get("position", {}).get("epic") == epic) or (pp.get("market", {}).get("epic") == epic)]
+            if len(_still) == 0:
+                open_positions[epic] = None
+            else:
+                open_positions[epic] = {"dealId": remote_deal, "direction": remote_dir}
+        except Exception:
+            open_positions[epic] = {"dealId": remote_deal, "direction": remote_dir}
+
+
+
+# ==============================
 # SIGNAL-LOGIK (Zelle D)
 # ==============================
 
@@ -790,6 +973,12 @@ def on_candle_close(epic, bar):
         f"C:{bar.get('close_ask', 0):.2f}/{bar.get('close_bid', 0):.2f} "
         f"→ {signal}"
     )
+
+    # 🧩 Positions-Sync vor Trade-Entscheidung
+    try:
+        sync_positions_with_broker(CST, XSEC, context=f"before_decision:{epic}")
+    except Exception as e:
+        print(f"⚠️ [SYNC] Fehler im before_decision-Sync für {epic}: {e}")
 
     # === 4️⃣ Marktseitig korrekten Entry-Preis bestimmen ===
     if signal.startswith("BEREIT: BUY"):
@@ -1053,7 +1242,7 @@ def evaluate_trend_signal(epic, closes, spread):
 # Hilfsfunktionen für robustes Open/Close
 # ==============================
 
-def safe_close(CST, XSEC, epic, deal_id=None):
+def safe_close(CST, XSEC, epic, deal_id=None, reason=None):
     # Wrapper: Close-Order robust mit Retry und Reset in open_positions.
     # Holt sich dealId und Richtung aus open_positions oder notfalls via get_positions().
 
@@ -1114,7 +1303,7 @@ def safe_close(CST, XSEC, epic, deal_id=None):
                 entry = snapshot.get("entry_price")
                 size_val = snapshot.get("size") or MANUAL_TRADE_SIZE
                 close_price = snapshot.get("last_close_trigger_price") or snapshot.get("mark_price")
-                reason = snapshot.get("last_close_reason") or "CLOSE"
+                reason = reason or snapshot.get("last_close_reason") or "CLOSE"
 
                 pnl = None
                 if entry is not None and close_price is not None:
@@ -1722,23 +1911,21 @@ async def run_candle_aggregator_per_instrument():
                 try:
                     print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}")
 
+
                     # 🕒 Kurze Pause nach Login, damit Capital-Server neue Tokens intern synchronisiert
                     await asyncio.sleep(RECONNECT_DELAY)
 
-                    positions = get_positions(CST, XSEC)
+                    print(f"🧩 [DEBUG REST-Check] Tokens → CST: {bool(CST)}, XSEC: {bool(XSEC)}")
 
-                    # 🧠 Schutz: Wenn Server noch keine Daten liefert (z. B. direkt nach Token-Refresh)
-                    if not positions or not isinstance(positions, list):
-                        print("🕒 Server liefert keine Positionsdaten (wahrscheinlich frischer Token) – überspringe diesen Check einmalig.")
-                        await asyncio.sleep(RECONNECT_DELAY)
-                    else:
-                        print(f"🧩 [DEBUG REST-Check] get_positions() Rückgabe: {type(positions)} / Länge: {len(positions)}")
+                    # 🕒 Kurze Pause nach Login, damit Capital-Server neue Tokens intern synchronisiert
+                    await asyncio.sleep(RECONNECT_DELAY)
 
-                        active_epics = [p["market"]["epic"] for p in positions if p.get("position")]
-                        for epic in list(open_positions.keys()):
-                            if epic not in active_epics:
-                                print(f"⚠️ {epic}: laut Server keine offene Position mehr → lokal schließen")
-                                open_positions[epic] = None
+                    # 🧩 Positions-Sync nach Login / Reconnect
+                    try:
+                        sync_positions_with_broker(CST, XSEC, context="after_reconnect")
+                    except Exception as e:
+                        print(f"⚠️ [SYNC] Fehler im after_reconnect-Sync: {e}")
+
 
                 except Exception as e:
                     msg = str(e).lower()
